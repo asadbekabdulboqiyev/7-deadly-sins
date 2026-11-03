@@ -15,6 +15,9 @@ dependencies = [
     "dnspython>=2.7",
     "typer>=0.13",
     "rich>=13.9",
+    "weasyprint>=70.0",
+    "jinja2>=3.1.6",
+    "arq>=0.28.0",
 ]
 
 [project.scripts]
@@ -48,3 +51,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# asyncpg engine bitta event loop'ga bog'lanadi — barcha testlar bitta loop'da.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

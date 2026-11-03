@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import sys
 from pathlib import Path
@@ -17,26 +16,10 @@ from .adapters import REGISTRY, ScanContext
 from .authz import OwnershipError, assert_authorized, issue_token
 from .config import get_settings
 from .orchestrator import ScanReport, SinsOrchestrator
+from .targets import is_lab_target
 
 app = typer.Typer(add_completion=False, help="SINS — attack surface & vulnerability assessment")
 console = Console()
-
-
-def _is_lab_target(target: str) -> bool:
-    """Faqat lokal/lab nishonlar uchun egalik tekshiruvisiz ruxsat."""
-    host = target
-    for prefix in ("https://", "http://"):
-        if host.startswith(prefix):
-            host = host[len(prefix) :]
-    host = host.split("/")[0].split(":")[0].lower()
-
-    if host in {"localhost", "::1"} or host.endswith((".local", ".test", ".localhost")):
-        return True
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return ip.is_loopback or ip.is_private
 
 
 @app.command()
@@ -85,7 +68,7 @@ def verify(target: str = typer.Argument(..., help="Domen yoki URL")) -> None:
             f"[bold]Token:[/bold] {token}\n"
             f"[bold]Amal qiladi:[/bold] {ttl} soat\n\n"
             "[bold]1-usul — DNS TXT:[/bold]\n"
-            f"  _sins-verify.<domain>  TXT  \"{token}\"\n\n"
+            f'  _sins-verify.<domain>  TXT  "{token}"\n\n'
             "[bold]2-usul — HTTP fayl:[/bold]\n"
             f"  /.well-known/sins-verify-{token}\n\n"
             "[dim]Keyin: sins scan <target> --verify-token " + token + "[/dim]",
@@ -120,7 +103,7 @@ def scan(
         raise typer.Exit(code=2)
 
     if lab:
-        if not _is_lab_target(target):
+        if not is_lab_target(target):
             console.print(
                 f"[red]Rad etildi:[/red] --lab faqat lokal/private nishonlar uchun. "
                 f"'{target}' tashqi manzil — `--verify-token` ishlating."
@@ -147,7 +130,18 @@ def scan(
         console.print("[red]Hech qanday engine tayyor emas.[/red] `sins adapters` ni tekshiring.")
         raise typer.Exit(code=4)
 
-    console.print(f"[dim]Ishga tushdi: {', '.join(a.name for a in orchestrator.adapters)}[/dim]")
+    runnable = [a for a in orchestrator.adapters if a.applies_to(target)]
+    skipped = [a.name for a in orchestrator.adapters if not a.applies_to(target)]
+    if not runnable:
+        console.print(
+            f"[red]Tanlangan engine'lar '{target}' nishon turiga mos emas.[/red] "
+            "Dependency auditi (osv) uchun lokal papka bering."
+        )
+        raise typer.Exit(code=4)
+
+    console.print(f"[dim]Ishga tushdi: {', '.join(a.name for a in runnable)}[/dim]")
+    if skipped:
+        console.print(f"[dim]O'tkazib yuborildi (nishon turi mos emas): {', '.join(skipped)}[/dim]")
     with console.status("Skanlanmoqda..."):
         report = asyncio.run(orchestrator.run(ctx))
 
@@ -166,6 +160,9 @@ def scan(
                     "findings": e.findings,
                     "duration_ms": e.duration_ms,
                     "error": e.error,
+                    "attempts": e.attempts,
+                    "skipped": e.skipped,
+                    "skip_reason": e.skip_reason,
                 }
                 for e in report.engines
             ],
@@ -178,6 +175,147 @@ def scan(
     sys.exit(0 if not has_findings else 0)
 
 
+@app.command()
+def report(
+    scan_json: Path = typer.Argument(..., help="`sins scan --json` chiqishi"),
+    out: Path = typer.Option(Path("report.pdf"), "--out", "-o", help="PDF fayl"),
+    tenant: str = typer.Option("Mijoz", "--tenant", help="Hisobotdagi mijoz nomi"),
+) -> None:
+    """Skan JSON'idan professional PDF hisobot yasaydi."""
+    from .report import build_context, render_pdf
+    from .schemas import FindingContract
+
+    payload = json.loads(scan_json.read_text(encoding="utf-8"))
+    findings = [FindingContract(**f) for f in payload.get("findings", [])]
+
+    ctx = build_context(
+        scan_id=payload.get("scan_id", scan_json.stem),
+        target=payload.get("target", "—"),
+        tenant_name=tenant,
+        findings=findings,
+        engines=payload.get("engines", []),
+        duration_ms=payload.get("duration_ms", 0),
+    )
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(render_pdf(ctx))
+    console.print(
+        f"[green]Hisobot tayyor:[/green] {out}  "
+        f"({out.stat().st_size // 1024} KB, {ctx['total_findings']} topilma, "
+        f"risk {ctx['risk_score']}/100 — {ctx['risk_grade']})"
+    )
+
+
+@app.command("create-tenant")
+def create_tenant(
+    name: str = typer.Option(..., "--name", "-n", help="Mijoz nomi (masalan: Demo Bank)"),
+) -> None:
+    """Yangi mijoz yaratadi. API kalit faqat BIR MARTA ko'rsatiladi."""
+    from .db import get_sessionmaker
+    from .services import scan_service
+
+    async def _run() -> tuple[str, str, str]:
+        async with get_sessionmaker()() as session:
+            tenant, raw_key = await scan_service.create_tenant(session, name)
+            return str(tenant.id), tenant.name, raw_key
+
+    tenant_id, tenant_name, raw_key = asyncio.run(_run())
+    console.print(
+        Panel.fit(
+            f"[bold]Mijoz:[/bold] {tenant_name}\n"
+            f"[bold]ID:[/bold] {tenant_id}\n\n"
+            f"[bold yellow]API kalit (boshqa ko'rsatilmaydi):[/bold yellow]\n"
+            f"{raw_key}\n\n"
+            "[dim]Saqlang: bazada faqat hash qoladi. Yo'qolsa — yangi tenant kerak.[/dim]",
+            title="Yangi mijoz yaratildi",
+            border_style="green",
+        )
+    )
+
+
+@app.command()
+def prune(
+    days: int = typer.Option(None, "--days", help="Necha kundan eski yozuvlar (sukut: sozlamadan)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Faqat ko'rsatadi, o'chirmaydi"),
+) -> None:
+    """Saqlash siyosatidan eski skanlarni o'chiradi (GDPR/hajm uchun)."""
+    from .db import get_sessionmaker
+    from .services import scan_service
+
+    window = days if days is not None else get_settings().retention_days
+
+    async def _run() -> tuple[int, int]:
+        async with get_sessionmaker()() as session:
+            return await scan_service.prune_scans(session, older_than_days=window, dry_run=dry_run)
+
+    scans, findings = asyncio.run(_run())
+    verb = "o'chiriladi" if not dry_run else "o'chirilgan bo'lardi"
+    console.print(
+        f"[bold]{window}[/bold] kundan eski: [bold]{scans}[/bold] skan, "
+        f"[bold]{findings}[/bold] topilma {verb}."
+    )
+    if dry_run:
+        console.print("[dim]--dry-run: bazaga hech narsa yozilmadi.[/dim]")
+
+
+@app.command("rotate-key")
+def rotate_key(
+    api_key: str = typer.Option(..., "--api-key", help="Joriy API kalit (tenantni aniqlash uchun)"),
+) -> None:
+    """Tenant uchun yangi API kalit beradi. Eski kalit darhol ishlamaydi."""
+    from .db import get_sessionmaker
+    from .services import scan_service
+
+    async def _run() -> tuple[str, str] | None:
+        async with get_sessionmaker()() as session:
+            tenant = await scan_service.get_tenant_by_key(session, api_key)
+            if tenant is None:
+                return None
+            raw = await scan_service.rotate_api_key(session, tenant)
+            return tenant.name, raw
+
+    result = asyncio.run(_run())
+    if result is None:
+        console.print("[red]Kalit topilmadi.[/red]")
+        raise typer.Exit(code=1)
+
+    name, raw = result
+    console.print(
+        Panel.fit(
+            f"[bold]Mijoz:[/bold] {name}\n\n"
+            f"[bold yellow]Yangi API kalit (boshqa ko'rsatilmaydi):[/bold yellow]\n"
+            f"{raw}\n\n"
+            "[dim]Eski kalit shu zahoti ishlamaydi — mijozni yangilang.[/dim]",
+            title="Kalit almashtirildi",
+            border_style="yellow",
+        )
+    )
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind manzil"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port"),
+    reload: bool = typer.Option(False, "--reload", help="Kod o'zgarsa qayta yuklash (dev)"),
+) -> None:
+    """HTTP API'ni ishga tushiradi."""
+    import uvicorn
+
+    console.print(f"[green]API:[/green] http://{host}:{port}/docs")
+    uvicorn.run("sins.api.main:app", host=host, port=port, reload=reload)
+
+
+@app.command()
+def worker() -> None:
+    """ARQ worker'ni ishga tushiradi (skan job'lari)."""
+    from arq.worker import run_worker
+
+    from .worker import WorkerSettings
+
+    console.print("[green]Worker ishga tushdi.[/green] Ctrl+C — to'xtatish.")
+    run_worker(WorkerSettings)
+
+
 def _print_report(report: ScanReport) -> None:
     engines = Table(title="Engine natijalari")
     engines.add_column("Engine")
@@ -186,6 +324,9 @@ def _print_report(report: ScanReport) -> None:
     engines.add_column("Vaqt", justify="right")
     engines.add_column("Holat")
     for e in report.engines:
+        if e.skipped:
+            engines.add_row(e.name, e.sin, "—", "—", "[dim]o'tkazib yuborildi[/dim]")
+            continue
         status = "[green]ok[/green]" if e.ok else f"[red]{e.error}[/red]"
         engines.add_row(e.name, e.sin, str(e.findings), f"{e.duration_ms} ms", status)
     console.print(engines)

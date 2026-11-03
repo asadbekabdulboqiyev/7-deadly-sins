@@ -19,6 +19,7 @@ from typing import Any, ClassVar
 from ..dedup import dedup_key, normalize_cve, normalize_location, severity_from_cvss
 from ..runner import RunResult, ToolNotFound, run_tool, which
 from ..schemas import Category, FindingContract, Severity
+from ..targets import InvalidTarget, classify_target
 from .base import ScanContext
 
 log = logging.getLogger(__name__)
@@ -34,21 +35,36 @@ class NucleiAdapter:
     def available(self) -> bool:
         return which("nuclei") is not None
 
+    def applies_to(self, target: str) -> bool:
+        """Nuclei tarmoq nishonlari bilan ishlaydi; lokal papka unga ma'nosiz."""
+        try:
+            kind = classify_target(target)
+        except InvalidTarget:
+            return True  # formatni adapter emas, tool'ning o'zi baholaydi
+        return kind in {"domain", "url", "ip"}
+
     def run(self, ctx: ScanContext) -> list[FindingContract]:
         argv = [
             "nuclei",
-            "-u", ctx.target,
+            "-u",
+            ctx.target,
             "-jsonl",
             "-silent",
-            "-no-interactsh",          # tashqi OAST serverga bog'lanmasin
+            "-no-interactsh",  # tashqi OAST serverga bog'lanmasin
             "-disable-update-check",
-            "-severity", ",".join(ctx.severities),
-            "-rate-limit", str(max(1, min(ctx.max_rps, 150))),
-            "-concurrency", "10",
-            "-timeout", "10",
-            "-retries", "1",
+            "-severity",
+            ",".join(ctx.severities),
+            "-rate-limit",
+            str(max(1, min(ctx.max_rps, 150))),
+            "-concurrency",
+            "10",
+            "-timeout",
+            "10",
+            "-retries",
+            "1",
             "-stats-json",
-            "-stats-interval", "10",
+            "-stats-interval",
+            "10",
         ]
         if ctx.templates:
             argv += ["-t", ",".join(ctx.templates)]

@@ -30,14 +30,14 @@ SEVERITY_ORDER: dict[Severity, int] = {
 
 
 class Category(StrEnum):
-    exposure = "exposure"      # Pride   — ochiq portlar, subdomenlar
-    vuln = "vuln"              # Greed   — CVE zaifliklar
-    auth = "auth"              # Lust    — autentifikatsiya kamchiliklari
-    tls = "tls"                # Envy    — SSL/TLS
+    exposure = "exposure"  # Pride   — ochiq portlar, subdomenlar
+    vuln = "vuln"  # Greed   — CVE zaifliklar
+    auth = "auth"  # Lust    — autentifikatsiya kamchiliklari
+    tls = "tls"  # Envy    — SSL/TLS
     resilience = "resilience"  # Gluttony— barqarorlik (past yuklama)
-    exploit = "exploit"        # Wrath   — tasdiqlangan ekspluatatsiya
+    exploit = "exploit"  # Wrath   — tasdiqlangan ekspluatatsiya
     dependency = "dependency"  # Sloth   — eskirgan kutubxonalar
-    misconfig = "misconfig"    # Sloth   — noto'g'ri konfiguratsiya
+    misconfig = "misconfig"  # Sloth   — noto'g'ri konfiguratsiya
 
 
 class Remediation(BaseModel):

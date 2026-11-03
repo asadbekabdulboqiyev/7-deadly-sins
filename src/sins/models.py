@@ -16,9 +16,11 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -39,6 +41,7 @@ class ScanStatus(StrEnum):
     running = "running"
     done = "done"
     failed = "failed"
+    cancelled = "cancelled"  # foydalanuvchi bekor qildi
     blocked = "blocked"  # authorization gate o'tmadi
 
 
@@ -47,6 +50,9 @@ class Tenant(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Kalitning o'zi emas — faqat SHA-256 hash. Ko'rsatish uchun qisqa prefiks.
+    api_key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    api_key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     targets: Mapped[list[Target]] = relationship(back_populates="tenant")
@@ -67,6 +73,7 @@ class Target(Base):
     verify_token: Mapped[str | None] = mapped_column(String(128))
     verify_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verify_method: Mapped[str | None] = mapped_column(String(20))  # dns | http | lab
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     tenant: Mapped[Tenant] = relationship(back_populates="targets")
@@ -78,6 +85,17 @@ class Target(Base):
 
 class Scan(Base):
     __tablename__ = "scans"
+    __table_args__ = (
+        # Bir tenant bir xil Idempotency-Key bilan ikki marta skan yaratmasin.
+        # Qisman indeks: kalit berilmagan (NULL) qatorlar to'qnashmaydi.
+        Index(
+            "uq_scan_idempotency",
+            "tenant_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
@@ -85,7 +103,17 @@ class Scan(Base):
 
     status: Mapped[str] = mapped_column(String(20), default=ScanStatus.pending)
     engines: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    # Qaysi og'irlik darajalari qidiriladi (info sukut bo'yicha yoqilmaydi)
+    severities: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     error: Mapped[str | None] = mapped_column(Text)
+    # Ixtiyoriy: bir xil so'rov ikki marta yuborilsa, yangi skan yaratilmaydi.
+    idempotency_key: Mapped[str | None] = mapped_column(String(80))
+
+    # Progress kuzatuvi — UI progress-bar uchun
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    current_engine: Mapped[str | None] = mapped_column(String(50))
+    # Har bir engine natijasi (nom, davomiylik, xato) — PDF hisobot uchun
+    engine_stats: Mapped[list[dict]] = mapped_column(JSONB, default=list)
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

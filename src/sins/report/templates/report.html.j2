@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<title>Security Assessment — {{ target }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 16mm 18mm 16mm;
+    @bottom-left {
+      content: "Maxfiy — {{ target }}";
+      font-size: 7.5pt;
+      color: #94a3b8;
+    }
+    @bottom-right {
+      content: counter(page) " / " counter(pages);
+      font-size: 7.5pt;
+      color: #94a3b8;
+    }
+  }
+  @page cover {
+    margin: 0;
+    @bottom-left { content: none; }
+    @bottom-right { content: none; }
+  }
+
+  * { box-sizing: border-box; }
+  html { font-size: 10pt; }
+  body {
+    margin: 0;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #0f172a;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 15pt;
+    margin: 0 0 3mm 0;
+    padding-bottom: 2mm;
+    border-bottom: 1.5pt solid #0f172a;
+  }
+  h3 { font-size: 11pt; margin: 0 0 1.5mm 0; }
+  p { margin: 0 0 3mm 0; }
+  small { font-size: 8pt; color: #64748b; }
+
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.5pt; }
+  .muted { color: #64748b; }
+  .section { break-before: page; }
+
+  /* ---------- COVER ---------- */
+  .cover {
+    page: cover;
+    height: 297mm;
+    padding: 28mm 20mm 18mm 20mm;
+    position: relative;
+  }
+  .cover-bar { height: 6pt; background: #0f172a; margin-bottom: 22mm; }
+  .cover-kicker {
+    font-size: 8.5pt;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 6mm;
+  }
+  .cover-title {
+    font-size: 30pt;
+    line-height: 1.12;
+    letter-spacing: -0.03em;
+    margin-bottom: 4mm;
+  }
+  .cover-target {
+    font-size: 13pt;
+    color: #334155;
+    padding: 3mm 0;
+    border-top: 1pt solid #e2e8f0;
+    border-bottom: 1pt solid #e2e8f0;
+    margin-bottom: 12mm;
+  }
+  .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 14mm; }
+  .meta-table td { padding: 2.2mm 0; vertical-align: top; border-bottom: 0.5pt solid #f1f5f9; }
+  .meta-table td:first-child {
+    width: 42mm;
+    color: #64748b;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .meta-table td:last-child { font-weight: 500; }
+
+  .cover-foot {
+    position: absolute;
+    left: 20mm; right: 20mm; bottom: 18mm;
+    border-top: 1pt solid #e2e8f0;
+    padding-top: 4mm;
+    font-size: 8pt;
+    color: #94a3b8;
+  }
+
+  /* ---------- SEVERITY CARDS ---------- */
+  .cards { width: 100%; border-collapse: separate; border-spacing: 2.5mm 0; margin: 0 -2.5mm 6mm -2.5mm; }
+  .cards td {
+    width: 20%;
+    padding: 3.5mm 3mm;
+    border-radius: 2mm;
+    background: #f8fafc;
+    border-left: 2.5pt solid #cbd5e1;
+    vertical-align: top;
+  }
+  .card-count { font-size: 19pt; font-weight: 700; line-height: 1; }
+  .card-label {
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    margin-top: 1.5mm;
+  }
+
+  .sev-critical { border-left-color: #b91c1c; }
+  .sev-high     { border-left-color: #ea580c; }
+  .sev-medium   { border-left-color: #ca8a04; }
+  .sev-low      { border-left-color: #0284c7; }
+  .sev-info     { border-left-color: #94a3b8; }
+  .c-critical { color: #b91c1c; }
+  .c-high     { color: #ea580c; }
+  .c-medium   { color: #ca8a04; }
+  .c-low      { color: #0284c7; }
+  .c-info     { color: #64748b; }
+
+  /* ---------- RISK ---------- */
+  .risk-box {
+    border: 1pt solid #e2e8f0;
+    border-radius: 2mm;
+    padding: 4mm;
+    margin-bottom: 6mm;
+  }
+  .risk-head { width: 100%; border-collapse: collapse; margin-bottom: 2.5mm; }
+  .risk-head td:last-child { text-align: right; }
+  .risk-score { font-size: 22pt; font-weight: 700; line-height: 1; }
+  .risk-grade {
+    font-size: 8pt;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  .bar-track { height: 3mm; background: #f1f5f9; border-radius: 1.5mm; }
+  .bar-fill { height: 3mm; border-radius: 1.5mm; background: #0f172a; }
+
+  /* ---------- TABLES ---------- */
+  table.grid { width: 100%; border-collapse: collapse; }
+  table.grid th {
+    text-align: left;
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #64748b;
+    padding: 0 2mm 2mm 0;
+    border-bottom: 1pt solid #0f172a;
+    font-weight: 600;
+  }
+  table.grid td {
+    padding: 2.2mm 2mm 2.2mm 0;
+    border-bottom: 0.5pt solid #e2e8f0;
+    vertical-align: top;
+  }
+  table.grid tr { break-inside: avoid; }
+
+  .chip {
+    display: inline-block;
+    padding: 0.8mm 2mm;
+    border-radius: 1mm;
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .chip-critical { background: #b91c1c; }
+  .chip-high     { background: #ea580c; }
+  .chip-medium   { background: #ca8a04; }
+  .chip-low      { background: #0284c7; }
+  .chip-info     { background: #94a3b8; }
+
+  /* ---------- FINDING DETAIL ---------- */
+  .finding {
+    border: 1pt solid #e2e8f0;
+    border-radius: 2mm;
+    padding: 4mm;
+    margin-bottom: 4mm;
+    break-inside: avoid;
+  }
+  .finding-head { width: 100%; border-collapse: collapse; margin-bottom: 2.5mm; }
+  .finding-head td { vertical-align: top; }
+  .finding-head td:last-child { text-align: right; width: 30mm; }
+  .finding-title { font-size: 11pt; font-weight: 700; margin: 1.5mm 0 0 0; }
+
+  .kv { width: 100%; border-collapse: collapse; margin-bottom: 3mm; }
+  .kv td { padding: 1mm 0; font-size: 8.5pt; vertical-align: top; }
+  .kv td:first-child { width: 26mm; color: #64748b; }
+
+  .remediation {
+    background: #f0fdf4;
+    border-left: 2.5pt solid #16a34a;
+    padding: 3mm;
+    border-radius: 1mm;
+    margin-top: 3mm;
+  }
+  .remediation-title {
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #15803d;
+    font-weight: 700;
+    margin-bottom: 1.5mm;
+  }
+  .remediation ul { margin: 0; padding-left: 4mm; }
+  .remediation li { font-size: 8.5pt; margin-bottom: 0.8mm; }
+
+  .evidence {
+    background: #f8fafc;
+    border-radius: 1mm;
+    padding: 2.5mm 3mm;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 7.5pt;
+    color: #334155;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .empty {
+    border: 1pt dashed #cbd5e1;
+    border-radius: 2mm;
+    padding: 8mm;
+    text-align: center;
+    color: #64748b;
+  }
+
+  .note {
+    background: #fffbeb;
+    border-left: 2.5pt solid #d97706;
+    padding: 3mm;
+    border-radius: 1mm;
+    font-size: 8.5pt;
+  }
+  ol, ul { margin: 0 0 3mm 0; padding-left: 5mm; }
+  li { margin-bottom: 1.2mm; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="cover-bar"></div>
+
+  <div class="cover-kicker">Security Assessment Report</div>
+  <div class="cover-title">Zaifliklar va<br>attack surface tahlili</div>
+  <div class="cover-target mono">{{ target }}</div>
+
+  <table class="meta-table">
+    <tr><td>Mijoz</td><td>{{ tenant_name }}</td></tr>
+    <tr><td>Skan ID</td><td class="mono">{{ scan_id }}</td></tr>
+    <tr><td>Sana</td><td>{{ generated_at_str }}</td></tr>
+    <tr><td>Davomiylik</td><td>{{ duration_s }} s</td></tr>
+    <tr><td>Ishlatilgan engine</td><td>{{ engine_names }}</td></tr>
+    <tr><td>Jami topilma</td><td><strong>{{ total_findings }}</strong></td></tr>
+  </table>
+
+  <table class="cards">
+    <tr>
+      {% for card in summary_cards %}
+      <td class="sev-{{ card.key }}">
+        <div class="card-count c-{{ card.key }}">{{ card.count }}</div>
+        <div class="card-label">{{ card.label }}</div>
+      </td>
+      {% endfor %}
+    </tr>
+  </table>
+
+  <div class="cover-foot">
+    Ushbu hisobot maxfiy. Faqat belgilangan mijoz va uning vakolatli xodimlari uchun.
+    Tarqatish taqiqlanadi.
+  </div>
+</div>
+
+<!-- ============ EXECUTIVE SUMMARY ============ -->
+<div class="section">
+  <h2>1. Umumiy xulosa</h2>
+
+  <div class="risk-box">
+    <table class="risk-head">
+      <tr>
+        <td>
+          <div class="risk-grade">Umumiy risk darajasi</div>
+          <div style="font-size:12pt;font-weight:700;margin-top:1mm">{{ risk_grade }}</div>
+        </td>
+        <td>
+          <div class="risk-grade">Risk ball</div>
+          <div class="risk-score">{{ risk_score }}<span style="font-size:10pt;color:#94a3b8">/100</span></div>
+        </td>
+      </tr>
+    </table>
+    <div class="bar-track">
+      <div class="bar-fill" style="width: {{ risk_score }}%"></div>
+    </div>
+  </div>
+
+  {% if total_findings == 0 %}
+  <div class="empty">
+    <strong>Topilma yo'q.</strong><br>
+    Tekshirilgan engine'lar hech qanday ma'lum zaiflikni aniqlamadi.
+  </div>
+  {% else %}
+  <p>
+    <strong>{{ target }}</strong> nishonida jami <strong>{{ total_findings }}</strong> ta topilma qayd etildi.
+    {% if counts.critical %}
+    Ulardan <strong class="c-critical">{{ counts.critical }} tasi kritik</strong> — bu zaifliklar zudlik bilan
+    tuzatilishi kerak, chunki ular tizimga to'liq kirish yoki ma'lumot o'g'irlashga olib kelishi mumkin.
+    {% endif %}
+    {% if counts.high %}
+    <strong class="c-high">{{ counts.high }} tasi yuqori</strong> darajali.
+    {% endif %}
+    {% if counts.medium %}
+    {{ counts.medium }} tasi o'rta darajali.
+    {% endif %}
+  </p>
+
+  <h3 style="margin-top:6mm">Eng jiddiy topilmalar</h3>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th style="width:20mm">Daraja</th>
+        <th>Topilma</th>
+        <th style="width:45mm">Joylashuv</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in findings[:5] %}
+      <tr>
+        <td><span class="chip chip-{{ f.severity.value }}">{{ f.severity.value }}</span></td>
+        <td>{{ f.title }}</td>
+        <td class="mono muted">{{ f.location }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h3 style="margin-top:8mm">Engine natijalari</h3>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th>Engine</th>
+        <th>Vazifa</th>
+        <th style="width:22mm">Topilma</th>
+        <th style="width:22mm">Vaqt</th>
+        <th style="width:20mm">Holat</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in engines %}
+      <tr>
+        <td class="mono">{{ e.name }}</td>
+        <td class="muted">{{ e.sin }}</td>
+        {% if e.get('skipped') %}
+        <td class="muted">—</td>
+        <td class="muted">—</td>
+        <td><span class="muted">o'tkazib yuborildi</span></td>
+        {% else %}
+        <td>{{ e.findings }}</td>
+        <td class="muted">{{ (e.duration_ms / 1000) | round(1) }} s</td>
+        <td>{% if e.ok %}<span style="color:#15803d">ok</span>{% else %}<span style="color:#b91c1c">xato</span>{% endif %}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if engines | selectattr('skipped') | list %}
+  <p class="muted" style="font-size:8.5pt; margin-top:2mm">
+    O'tkazib yuborilgan engine'lar nishon turiga mos kelmaydi (masalan, dependency
+    auditi faqat lokal kod papkasi bilan ishlaydi) — ular bu skanda ishga tushirilmagan.
+  </p>
+  {% endif %}
+</div>
+
+<!-- ============ FINDINGS TABLE ============ -->
+{% if findings %}
+<div class="section">
+  <h2>2. Topilmalar ro'yxati</h2>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th style="width:8mm">#</th>
+        <th style="width:20mm">Daraja</th>
+        <th>Topilma</th>
+        <th style="width:38mm">Joylashuv</th>
+        <th style="width:22mm">CVE</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in findings %}
+      <tr>
+        <td class="muted">{{ loop.index }}</td>
+        <td><span class="chip chip-{{ f.severity.value }}">{{ f.severity.value }}</span></td>
+        <td>{{ f.title }}</td>
+        <td class="mono muted">{{ f.location }}</td>
+        <td class="mono muted">{{ f.cve | join(", ") if f.cve else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ============ FINDINGS DETAIL ============ -->
+<div class="section">
+  <h2>3. Topilmalar tafsiloti</h2>
+
+  {% for f in findings %}
+  <div class="finding">
+    <table class="finding-head">
+      <tr>
+        <td>
+          <span class="chip chip-{{ f.severity.value }}">{{ f.severity.value }}</span>
+          <div class="finding-title">{{ loop.index }}. {{ f.title }}</div>
+        </td>
+        <td>
+          {% if f.cvss %}<div class="mono" style="font-size:12pt;font-weight:700">CVSS {{ f.cvss }}</div>{% endif %}
+        </td>
+      </tr>
+    </table>
+
+    <table class="kv">
+      <tr><td>Kategoriya</td><td>{{ f.category.value }}</td></tr>
+      <tr><td>Joylashuv</td><td class="mono">{{ f.location }}</td></tr>
+      {% if f.cve %}<tr><td>CVE</td><td class="mono">{{ f.cve | join(", ") }}</td></tr>{% endif %}
+      {% if f.cwe %}<tr><td>CWE</td><td class="mono">{{ f.cwe | join(", ") }}</td></tr>{% endif %}
+      <tr><td>Manba</td><td class="mono">{{ f.source_tools | join(", ") }}</td></tr>
+    </table>
+
+    {% if f.remediation %}
+    <div class="remediation">
+      <div class="remediation-title">Tuzatish</div>
+      <p style="font-size:8.5pt;margin-bottom:1.5mm">{{ f.remediation.summary }}</p>
+      {% if f.remediation.steps %}
+      <ul>
+        {% for step in f.remediation.steps %}<li class="mono">{{ step }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if f.evidence and (f.evidence.template_id or f.evidence.vuln_id or f.evidence.matcher) %}
+    <div class="evidence">{% if f.evidence.template_id %}template: {{ f.evidence.template_id }}{% endif %}{% if f.evidence.matcher %}
+matcher:  {{ f.evidence.matcher }}{% endif %}{% if f.evidence.vuln_id %}
+vuln:     {{ f.evidence.vuln_id }}{% endif %}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- ============ METHODOLOGY ============ -->
+<div class="section">
+  <h2>{{ 4 if findings else 3 }}. Metodologiya va cheklovlar</h2>
+
+  <h3>Qanday tekshirildi</h3>
+  <p>
+    Barcha tekshiruvlar avtomatlashtirilgan open-source vositalar orqali amalga oshirildi.
+    Skan faqat nishon egaligi tasdiqlangandan keyin boshlandi (DNS TXT yozuvi yoki
+    <span class="mono">/.well-known/</span> fayli orqali).
+  </p>
+  <ol>
+    <li><strong>Greed</strong> — <span class="mono">nuclei</span> bilan ma'lum CVE va konfiguratsiya zaifliklari.</li>
+    <li><strong>Sloth</strong> — <span class="mono">osv-scanner</span> bilan eskirgan kutubxonalar (nishonga tegmasdan).</li>
+  </ol>
+
+  <h3>Cheklovlar</h3>
+  <div class="note">
+    <strong>Bu penetration test emas.</strong> Hisobot avtomatlashtirilgan skan natijasidir.
+    Biznes logikasi, huquqlarni chetlab o'tish (IDOR), murakkab biznes oqimlari va
+    ijtimoiy injiniring tekshirilmagan. Yuqori riskli tizimlar uchun qo'lda
+    penetration test tavsiya etiladi.
+  </div>
+
+  <h3 style="margin-top:6mm">False positive haqida</h3>
+  <p>
+    Avtomatlashtirilgan skanerlar ba'zan noto'g'ri natija beradi. Har bir kritik va
+    yuqori darajali topilma tuzatishdan oldin qo'lda tasdiqlanishi tavsiya etiladi.
+  </p>
+
+  <h3 style="margin-top:6mm">Hisobot haqida</h3>
+  <table class="kv">
+    <tr><td>Skan ID</td><td class="mono">{{ scan_id }}</td></tr>
+    <tr><td>Yaratilgan</td><td>{{ generated_at_str }}</td></tr>
+    <tr><td>Nishon</td><td class="mono">{{ target }}</td></tr>
+    <tr><td>Engine</td><td class="mono">{{ engine_names }}</td></tr>
+  </table>
+</div>
+
+</body>
+</html>

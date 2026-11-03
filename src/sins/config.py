@@ -19,8 +19,23 @@ class Settings(BaseSettings):
     max_rps: int = 50
     tool_timeout_seconds: int = 900
 
-    # Faqat shu adapterlar ishga tushadi. Yangi tool qo'shilsa — shu yerga yoziladi.
-    allowed_engines: tuple[str, ...] = ("nuclei", "osv")
+    # Faqat shu adapterlar ishga tushadi. Vergul bilan ajratilgan satr:
+    # "nuclei,osv". Foydalanishda get_settings().allowed_engines_list().
+    allowed_engines: str = "nuclei,osv"
+
+    # Engine vaqtincha yiqilsa (timeout, tarmoq xatosi) qayta urinishlar soni.
+    adapter_max_attempts: int = 2
+    adapter_retry_backoff_seconds: float = 2.0
+
+    # HTTP himoyasi
+    rate_limit_enabled: bool = True
+    rate_limit_per_minute: int = 600
+
+    # Ma'lumot saqlash siyosati (kunlarda). `sins prune` va ARQ cron ishlatadi.
+    retention_days: int = 180
+
+    def allowed_engines_list(self) -> list[str]:
+        return [e.strip() for e in self.allowed_engines.split(",") if e.strip()]
 
 
 @lru_cache

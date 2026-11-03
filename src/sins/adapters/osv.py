@@ -17,6 +17,7 @@ from typing import Any, ClassVar
 from ..dedup import dedup_key, severity_from_cvss
 from ..runner import RunResult, ToolNotFound, run_tool, which
 from ..schemas import Category, FindingContract, Remediation, Severity
+from ..targets import InvalidTarget, classify_target
 from .base import ScanContext
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,18 @@ class OsvAdapter:
 
     def available(self) -> bool:
         return which("osv-scanner") is not None
+
+    def applies_to(self, target: str) -> bool:
+        """osv-scanner faqat lokal papka/lockfile'ni o'qiydi.
+
+        URL yoki domenga qarshi ishga tushirilsa tool osilib qoladi (tarmoqqa
+        chiqishga urinadi) va hech qanday natija bermaydi. Shuning uchun
+        bunday nishonlarda adapter umuman chaqirilmaydi.
+        """
+        try:
+            return classify_target(target) == "path"
+        except InvalidTarget:
+            return False
 
     def run(self, ctx: ScanContext) -> list[FindingContract]:
         # v2 CLI: `osv-scanner scan source -r <path>`
@@ -57,9 +70,7 @@ class OsvAdapter:
                 pkg_name = info.get("name") or "unknown"
                 pkg_version = info.get("version") or "?"
                 for vuln in pkg.get("vulnerabilities", []):
-                    findings.append(
-                        self._to_finding(vuln, pkg_name, pkg_version, package, target)
-                    )
+                    findings.append(self._to_finding(vuln, pkg_name, pkg_version, package, target))
         return findings
 
     def _to_finding(

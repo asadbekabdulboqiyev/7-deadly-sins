@@ -1,0 +1,770 @@
+"""Skan hayotiy sikli — yagona biznes-logika qatlami.
+
+CLI ham, HTTP API ham, ARQ worker ham AYNAN shu funksiyalarni chaqiradi.
+Shu tufayli qoidalar (egalik tekshiruvi, tenant izolyatsiyasi, limitlar)
+bir joyda turadi va takrorlanmaydi.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import Any
+
+from sqlalchemy import any_, delete, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..adapters import ScanContext
+from ..authz import OwnershipError, issue_token, verify_ownership
+from ..config import get_settings
+from ..db import get_sessionmaker
+from ..models import Finding, Scan, ScanStatus, Target, Tenant, utcnow
+from ..observability import track_engine, track_scan_finished, track_scan_started
+from ..orchestrator import SinsOrchestrator
+from ..report import build_context
+from ..schemas import SEVERITY_ORDER, Category, FindingContract, Remediation, Severity
+from ..security import display_prefix, generate_api_key, hash_api_key
+from ..targets import classify_target, is_lab_target, normalize_target
+
+log = logging.getLogger(__name__)
+
+# Bitta skan uchun ruxsat etilgan maksimal topilma (DB himoyasi).
+MAX_FINDINGS_PER_SCAN = 5000
+# Evidence ichidagi xom tool chiqishi shu hajmdan katta bo'lsa tashlab yuboriladi.
+MAX_EVIDENCE_BYTES = 8192
+
+
+class ServiceError(RuntimeError):
+    """Barcha domain xatolarining ota klassi."""
+
+
+class NotFound(ServiceError):
+    pass
+
+
+class TargetNotVerified(ServiceError):
+    pass
+
+
+class VerifyTokenExpired(ServiceError):
+    """Token muddati o'tdi — yangi token berildi."""
+
+    def __init__(self, message: str, token: str) -> None:
+        super().__init__(message)
+        self.token = token
+
+
+class ScanBusy(ServiceError):
+    pass
+
+
+class InvalidEngine(ServiceError):
+    pass
+
+
+# --------------------------------------------------------------------------
+# Tenant
+# --------------------------------------------------------------------------
+
+
+async def create_tenant(session: AsyncSession, name: str) -> tuple[Tenant, str]:
+    """Yangi mijoz. Kalit faqat bir marta qaytariladi — bazada hash saqlanadi."""
+    raw = generate_api_key()
+    tenant = Tenant(
+        name=name.strip(),
+        api_key_hash=hash_api_key(raw),
+        api_key_prefix=display_prefix(raw),
+    )
+    session.add(tenant)
+    await session.commit()
+    await session.refresh(tenant)
+    return tenant, raw
+
+
+async def get_tenant_by_key(session: AsyncSession, raw_key: str) -> Tenant | None:
+    if not raw_key or not raw_key.startswith("sins_"):
+        return None
+    stmt = select(Tenant).where(Tenant.api_key_hash == hash_api_key(raw_key))
+    return await session.scalar(stmt)
+
+
+# --------------------------------------------------------------------------
+# Target
+# --------------------------------------------------------------------------
+
+
+async def get_target(session: AsyncSession, tenant: Tenant, target_id: uuid.UUID) -> Target:
+    stmt = select(Target).where(Target.id == target_id, Target.tenant_id == tenant.id)
+    target = await session.scalar(stmt)
+    if target is None:
+        raise NotFound("Nishon topilmadi.")
+    return target
+
+
+async def list_targets(
+    session: AsyncSession,
+    tenant: Tenant,
+    *,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[Target]:
+    stmt = (
+        select(Target)
+        .where(Target.tenant_id == tenant.id)
+        .order_by(Target.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(await session.scalars(stmt))
+
+
+async def create_target(session: AsyncSession, tenant: Tenant, value: str) -> Target:
+    """Nishonni qo'shadi va egalik tokenini beradi.
+
+    Lab nishonlari (localhost/private IP) darhol tasdiqlangan hisoblanadi —
+    ularni tekshirishning ma'nosi yo'q, lekin tashqi manzilga bu yo'l YOPIQ.
+    """
+    settings = get_settings()
+    normalized = normalize_target(value)
+    kind = classify_target(normalized)
+
+    existing = await session.scalar(
+        select(Target).where(Target.tenant_id == tenant.id, Target.value == normalized)
+    )
+    if existing is not None:
+        return existing
+
+    now = utcnow()
+    target = Target(
+        tenant_id=tenant.id,
+        value=normalized,
+        kind=kind,
+        verify_token=issue_token(),
+        verify_expires_at=now + timedelta(hours=settings.verify_token_ttl_hours),
+    )
+    if is_lab_target(normalized):
+        target.verified_at = now
+        target.verify_method = "lab"
+
+    session.add(target)
+    await session.commit()
+    await session.refresh(target)
+    return target
+
+
+async def verify_target(session: AsyncSession, tenant: Tenant, target_id: uuid.UUID) -> Target:
+    """Egalikni tekshiradi. Muvaffaqiyatli bo'lsa `verified_at` yoziladi."""
+    settings = get_settings()
+    target = await get_target(session, tenant, target_id)
+    now = utcnow()
+
+    if target.verified_at is not None:
+        age = now - target.verified_at
+        if age.days < settings.verify_recheck_days:
+            return target
+
+    if is_lab_target(target.value):
+        target.verified_at = now
+        target.verify_method = "lab"
+        await session.commit()
+        return target
+
+    if target.verify_token is None or (
+        target.verify_expires_at is not None and target.verify_expires_at <= now
+    ):
+        target.verify_token = issue_token()
+        target.verify_expires_at = now + timedelta(hours=settings.verify_token_ttl_hours)
+        await session.commit()
+        raise VerifyTokenExpired(
+            "Tekshiruv tokeni muddati o'tgan — yangi token berildi. "
+            "Uni joylashtirib, tekshiruvni qaytadan chaqiring.",
+            target.verify_token,
+        )
+
+    ok, method = await verify_ownership(target.value, target.verify_token)
+    if not ok:
+        raise OwnershipError(
+            f"'{target.value}' egaligi tasdiqlanmadi. "
+            f"DNS TXT: _sins-verify.<domain> = <token> "
+            f"yoki fayl: /.well-known/sins-verify-<token>"
+        )
+
+    target.verified_at = now
+    target.verify_method = method
+    await session.commit()
+    await session.refresh(target)
+    return target
+
+
+# --------------------------------------------------------------------------
+# Scan
+# --------------------------------------------------------------------------
+
+
+async def get_scan(session: AsyncSession, tenant: Tenant, scan_id: uuid.UUID) -> Scan:
+    stmt = select(Scan).where(Scan.id == scan_id, Scan.tenant_id == tenant.id)
+    scan = await session.scalar(stmt)
+    if scan is None:
+        raise NotFound("Skan topilmadi.")
+    return scan
+
+
+async def list_scans(
+    session: AsyncSession,
+    tenant: Tenant,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    status_filter: list[str] | None = None,
+    target_id: uuid.UUID | None = None,
+) -> list[Scan]:
+    """Tenant skanlari, eng yangisidan boshlab. Sahifalash va filtrlar."""
+    stmt = select(Scan).where(Scan.tenant_id == tenant.id)
+    if status_filter:
+        stmt = stmt.where(Scan.status.in_(status_filter))
+    if target_id is not None:
+        stmt = stmt.where(Scan.target_id == target_id)
+    stmt = stmt.order_by(Scan.created_at.desc()).offset(offset).limit(limit)
+    return list(await session.scalars(stmt))
+
+
+async def count_scans(
+    session: AsyncSession,
+    tenant: Tenant,
+    *,
+    status_filter: list[str] | None = None,
+    target_id: uuid.UUID | None = None,
+) -> int:
+    stmt = select(func.count()).select_from(Scan).where(Scan.tenant_id == tenant.id)
+    if status_filter:
+        stmt = stmt.where(Scan.status.in_(status_filter))
+    if target_id is not None:
+        stmt = stmt.where(Scan.target_id == target_id)
+    return int(await session.scalar(stmt) or 0)
+
+
+async def find_scan_by_idempotency_key(
+    session: AsyncSession, tenant: Tenant, key: str
+) -> Scan | None:
+    """Shu kalit bilan yaratilgan skan (bo'lsa) — ikki marta navbatga qo'ymaslik uchun."""
+    cleaned = key.strip()[:80]
+    if not cleaned:
+        return None
+    return await session.scalar(
+        select(Scan).where(Scan.tenant_id == tenant.id, Scan.idempotency_key == cleaned)
+    )
+
+
+async def query_findings(
+    session: AsyncSession,
+    scan: Scan,
+    *,
+    severities: list[str] | None = None,
+    engine: str | None = None,
+) -> list[Finding]:
+    """Skan topilmalari, og'irlik bo'yicha tartiblangan.
+
+    Enum ustunida `ORDER BY` alifbo bo'yicha ishlaydi (critical oxirida qoladi),
+    shuning uchun tartiblash Python'da — aniq va bazaga bog'liq emas.
+    Filtrlash esa bazada bajariladi: 5000 tagacha topilmada ham arzon.
+    """
+    stmt = select(Finding).where(Finding.scan_id == scan.id)
+    if severities:
+        stmt = stmt.where(Finding.severity.in_(severities))
+    if engine:
+        stmt = stmt.where(any_(Finding.source_tools) == engine)
+    rows = list(await session.scalars(stmt))
+    rows.sort(key=lambda r: (-SEVERITY_ORDER[Severity(r.severity)], r.title))
+    return rows
+
+
+async def list_findings(
+    session: AsyncSession,
+    scan: Scan,
+    *,
+    severities: list[str] | None = None,
+    engine: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Finding]:
+    """Sahifalangan ro'yxat. `limit=None` — barcha topilmalar (PDF uchun)."""
+    rows = await query_findings(session, scan, severities=severities, engine=engine)
+    if limit is None:
+        return rows
+    return rows[offset : offset + limit]
+
+
+async def count_findings(
+    session: AsyncSession,
+    scan: Scan,
+    *,
+    severities: list[str] | None = None,
+    engine: str | None = None,
+) -> int:
+    return len(await query_findings(session, scan, severities=severities, engine=engine))
+
+
+def severity_counts(rows: list[Finding]) -> dict[str, int]:
+    """Har bir og'irlik bo'yicha soni — dashboard va PDF uchun."""
+    counts = {level.value: 0 for level in Severity}
+    for row in rows:
+        counts[str(row.severity)] = counts.get(str(row.severity), 0) + 1
+    return counts
+
+
+def _select_engines(requested: list[str] | None) -> list[str]:
+    allowed = get_settings().allowed_engines_list()
+    if not requested:
+        return allowed
+    unknown = [e for e in requested if e not in allowed]
+    if unknown:
+        raise InvalidEngine(
+            f"Noma'lum engine: {', '.join(unknown)}. Ruxsat etilgan: {', '.join(allowed)}"
+        )
+    return requested
+
+
+_SEVERITY_VALUES = {"critical", "high", "medium", "low", "info"}
+DEFAULT_SEVERITIES = ["critical", "high", "medium", "low"]
+
+
+def _select_severities(requested: list[str] | None) -> list[str]:
+    if not requested:
+        return list(DEFAULT_SEVERITIES)
+    unknown = [s for s in requested if s not in _SEVERITY_VALUES]
+    if unknown:
+        raise InvalidEngine(
+            f"Noma'lum severity: {', '.join(unknown)}. "
+            f"Ruxsat etilgan: {', '.join(sorted(_SEVERITY_VALUES))}"
+        )
+    return requested
+
+
+async def create_scan(
+    session: AsyncSession,
+    tenant: Tenant,
+    target_id: uuid.UUID,
+    engines: list[str] | None = None,
+    severities: list[str] | None = None,
+    idempotency_key: str | None = None,
+) -> Scan:
+    """Skan yozuvini yaratadi. Egalik tasdiqlanmagan bo'lsa — rad etadi.
+
+    `idempotency_key` berilsa va shu kalit bilan skan allaqachon mavjud bo'lsa,
+    yangi yozuv yaratilmaydi — o'sha skan qaytariladi (tarmoq qayta urinishi
+    ikki marta skan boshlashiga yo'l qo'ymaydi).
+    """
+    if idempotency_key:
+        key = idempotency_key.strip()[:80]
+        existing_scan = await session.scalar(
+            select(Scan).where(Scan.tenant_id == tenant.id, Scan.idempotency_key == key)
+        )
+        if existing_scan is not None:
+            return existing_scan
+
+    target = await get_target(session, tenant, target_id)
+
+    if target.verified_at is None:
+        raise TargetNotVerified(
+            "Nishon egaligi tasdiqlanmagan. Avval POST /targets/{id}/verify ni chaqiring."
+        )
+
+    selected = _select_engines(engines)
+    levels = _select_severities(severities)
+
+    busy = await session.scalar(
+        select(Scan.id).where(
+            Scan.target_id == target.id,
+            Scan.status.in_([ScanStatus.pending, ScanStatus.running]),
+        )
+    )
+    if busy is not None:
+        raise ScanBusy("Bu nishon uchun skan allaqachon navbatda yoki bajarilmoqda.")
+
+    scan = Scan(
+        tenant_id=tenant.id,
+        target_id=target.id,
+        engines=selected,
+        severities=levels,
+        status=ScanStatus.pending,
+        progress=0,
+        idempotency_key=(idempotency_key.strip()[:80] if idempotency_key else None),
+    )
+    session.add(scan)
+    await session.commit()
+    await session.refresh(scan)
+    return scan
+
+
+async def _set_progress(scan_id: uuid.UUID, progress: int, engine: str | None) -> None:
+    async with get_sessionmaker()() as session:
+        await session.execute(
+            update(Scan).where(Scan.id == scan_id).values(progress=progress, current_engine=engine)
+        )
+        await session.commit()
+
+
+def _compact_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    """Xom tool chiqishi juda katta bo'lishi mumkin — DB shishib ketmasin."""
+    if not evidence:
+        return {}
+    try:
+        size = len(json.dumps(evidence, default=str))
+    except (TypeError, ValueError):
+        return {}
+    if size <= MAX_EVIDENCE_BYTES:
+        return evidence
+    trimmed = {k: v for k, v in evidence.items() if k != "raw"}
+    trimmed["_raw_omitted_bytes"] = size
+    return trimmed
+
+
+def _to_finding_row(scan: Scan, contract: FindingContract) -> Finding:
+    return Finding(
+        scan_id=scan.id,
+        tenant_id=scan.tenant_id,
+        category=contract.category,
+        severity=contract.severity,
+        title=contract.title[:500],
+        cvss=contract.cvss,
+        cve=contract.cve,
+        cwe=contract.cwe,
+        location=contract.location[:1000],
+        evidence=_compact_evidence(contract.evidence),
+        source_tools=contract.source_tools,
+        remediation=(
+            contract.remediation.model_dump(mode="json") if contract.remediation else None
+        ),
+        dedup_key=contract.dedup_key[:64],
+    )
+
+
+async def execute_scan(scan_id: uuid.UUID) -> None:
+    """Worker entry point. Skan mavjud bo'lsa — bajaradi, natijani saqlaydi.
+
+    Idempotent: skan allaqachon tugagan bo'lsa hech narsa qilmaydi.
+    """
+    settings = get_settings()
+
+    async with get_sessionmaker()() as session:
+        scan = await session.get(Scan, scan_id)
+        if scan is None:
+            log.warning("execute_scan: skan topilmadi %s", scan_id)
+            return
+        if scan.status in {ScanStatus.done, ScanStatus.blocked, ScanStatus.cancelled}:
+            log.info("execute_scan: skan %s allaqachon %s", scan_id, scan.status)
+            return
+        if scan.status == ScanStatus.running:
+            log.warning("execute_scan: skan %s allaqachon bajarilmoqda", scan_id)
+            return
+
+        target = await session.get(Target, scan.target_id)
+        if target is None:
+            scan.status = ScanStatus.failed
+            scan.error = "Nishon o'chirilgan."
+            scan.finished_at = utcnow()
+            await session.commit()
+            return
+
+        scan.status = ScanStatus.running
+        scan.started_at = utcnow()
+        scan.progress = 1
+        scan.error = None
+        await session.commit()
+        track_scan_started()
+
+    try:
+        # --- Qayta tekshiruv: egalik eskirgan bo'lsa, yangilaymiz ---
+        if not is_lab_target(target.value):
+            stale = (
+                target.verified_at is None
+                or (utcnow() - target.verified_at).days >= settings.verify_recheck_days
+            )
+            if stale and target.verify_token:
+                ok, method = await verify_ownership(target.value, target.verify_token)
+                async with get_sessionmaker()() as session:
+                    fresh = await session.get(Target, target.id)
+                    if ok and fresh is not None:
+                        fresh.verified_at = utcnow()
+                        fresh.verify_method = method
+                        await session.commit()
+                    elif not ok:
+                        db_scan = await session.get(Scan, scan_id)
+                        if db_scan is not None:
+                            db_scan.status = ScanStatus.blocked
+                            db_scan.error = (
+                                "Egalikni qayta tasdiqlab bo'lmadi — skan bloklandi. "
+                                "TXT yozuvi yoki .well-known fayli o'chirilgan bo'lishi mumkin."
+                            )
+                            db_scan.finished_at = utcnow()
+                            await session.commit()
+                        return
+
+        ctx = ScanContext(
+            target=target.value,
+            max_rps=settings.max_rps,
+            timeout=settings.tool_timeout_seconds,
+            severities=list(scan.severities) or DEFAULT_SEVERITIES,
+        )
+        orchestrator = SinsOrchestrator(list(scan.engines))
+        total = max(1, len(orchestrator.adapters))
+        done = 0
+
+        async def on_engine_done(engine_report) -> None:  # noqa: ANN001 — EngineReport
+            nonlocal done
+            done += 1
+            track_engine(engine_report.name, engine_report.ok, engine_report.duration_ms)
+            await _set_progress(scan_id, min(95, int(done / total * 90) + 5), engine_report.name)
+
+        report = await orchestrator.run(ctx, on_engine_done)
+    except Exception as exc:  # noqa: BLE001 — skan holati har qanday holatda yozilishi kerak
+        log.exception("skan %s yiqildi", scan_id)
+        async with get_sessionmaker()() as session:
+            db_scan = await session.get(Scan, scan_id)
+            if db_scan is not None:
+                db_scan.status = ScanStatus.failed
+                db_scan.error = f"{type(exc).__name__}: {exc}"[:2000]
+                db_scan.finished_at = utcnow()
+                await session.commit()
+                track_scan_finished("failed", 0, 0)
+        return
+
+    # --- Natijalarni saqlash ---
+    async with get_sessionmaker()() as session:
+        db_scan = await session.get(Scan, scan_id)
+        if db_scan is None:
+            return
+
+        if db_scan.status == ScanStatus.cancelled:
+            # Skan bajarilayotganda bekor qilingan — natijani yozmaymiz.
+            log.info("skan %s bekor qilingan, natijalar saqlanmadi", scan_id)
+            return
+
+        contracts = report.findings[:MAX_FINDINGS_PER_SCAN]
+        for contract in contracts:
+            session.add(_to_finding_row(db_scan, contract))
+
+        db_scan.status = ScanStatus.done
+        db_scan.progress = 100
+        db_scan.current_engine = None
+        db_scan.finished_at = utcnow()
+        db_scan.engine_stats = [
+            {
+                "name": e.name,
+                "sin": e.sin,
+                "ok": e.ok,
+                "findings": e.findings,
+                "duration_ms": e.duration_ms,
+                "error": e.error,
+                "skipped": e.skipped,
+                "skip_reason": e.skip_reason,
+            }
+            for e in report.engines
+        ]
+        if len(report.findings) > MAX_FINDINGS_PER_SCAN:
+            db_scan.error = (
+                f"Topilmalar soni {len(report.findings)} — faqat birinchi "
+                f"{MAX_FINDINGS_PER_SCAN} tasi saqlandi."
+            )
+        await session.commit()
+        track_scan_finished("done", report.duration_ms, len(contracts))
+        log.info(
+            "skan %s tugadi: %d topilma, %d ms",
+            scan_id,
+            len(contracts),
+            report.duration_ms,
+        )
+
+
+# --------------------------------------------------------------------------
+# Boshqaruv amallari: bekor qilish, taqqoslash, kalit rotatsiyasi, tozalash
+# --------------------------------------------------------------------------
+
+
+class NotCancellable(ServiceError):
+    """Skan allaqachon tugagan — bekor qilib bo'lmaydi."""
+
+
+class InvalidScanState(ServiceError):
+    """Amal skanning joriy holatiga mos emas."""
+
+
+@dataclass(slots=True)
+class ScanDiff:
+    """Ikki skan orasidagi farq — "nima yangi, nima hal qilindi"."""
+
+    scan_id: uuid.UUID
+    against_scan_id: uuid.UUID | None
+    new: list[Finding] = field(default_factory=list)
+    resolved: list[Finding] = field(default_factory=list)
+    persisting: int = 0
+
+    @property
+    def has_baseline(self) -> bool:
+        return self.against_scan_id is not None
+
+
+async def cancel_scan(session: AsyncSession, tenant: Tenant, scan_id: uuid.UUID) -> Scan:
+    """Navbatdagi yoki bajarilayotgan skanni bekor qiladi.
+
+    Worker natijani yozishdan oldin holatni qayta o'qiydi — shuning uchun
+    bekor qilingan skan DB'ga topilma yozmaydi.
+    """
+    scan = await get_scan(session, tenant, scan_id)
+    if scan.status in {
+        ScanStatus.done,
+        ScanStatus.failed,
+        ScanStatus.cancelled,
+        ScanStatus.blocked,
+    }:
+        raise NotCancellable(f"Skan '{scan.status}' holatida — bekor qilib bo'lmaydi.")
+
+    scan.status = ScanStatus.cancelled
+    scan.current_engine = None
+    scan.finished_at = utcnow()
+    await session.commit()
+    await session.refresh(scan)
+    log.info("skan %s bekor qilindi", scan_id)
+    return scan
+
+
+async def previous_completed_scan(session: AsyncSession, tenant: Tenant, scan: Scan) -> Scan | None:
+    """Shu nishon uchun oldingi tugagan skan (diff uchun baza)."""
+    stmt = (
+        select(Scan)
+        .where(
+            Scan.tenant_id == tenant.id,
+            Scan.target_id == scan.target_id,
+            Scan.status == ScanStatus.done,
+            Scan.id != scan.id,
+            Scan.created_at <= scan.created_at,
+        )
+        .order_by(Scan.created_at.desc())
+        .limit(1)
+    )
+    return await session.scalar(stmt)
+
+
+async def diff_scan(
+    session: AsyncSession,
+    tenant: Tenant,
+    scan: Scan,
+    against_id: uuid.UUID | None = None,
+) -> ScanDiff:
+    """Joriy skanni oldingi (yoki ko'rsatilgan) skan bilan taqqoslaydi.
+
+    Taqqoslash `dedup_key` bo'yicha: bir xil topilma qayta chiqsa — u
+    "persisting", yo'qolgan bo'lsa — "resolved", yangi paydo bo'lsa — "new".
+    """
+    if scan.status != ScanStatus.done:
+        raise InvalidScanState(f"Faqat tugagan skanni taqqoslash mumkin (holat: {scan.status}).")
+
+    if against_id is not None:
+        base = await get_scan(session, tenant, against_id)
+        if base.target_id != scan.target_id:
+            raise InvalidScanState("Ikki skan turli nishonlarga tegishli.")
+        if base.status != ScanStatus.done:
+            raise InvalidScanState("Taqqoslash uchun baza skan tugagan bo'lishi kerak.")
+    else:
+        base = await previous_completed_scan(session, tenant, scan)
+
+    current_rows = await query_findings(session, scan)
+    if base is None:
+        return ScanDiff(
+            scan_id=scan.id,
+            against_scan_id=None,
+            new=list(current_rows),
+            resolved=[],
+            persisting=0,
+        )
+
+    base_rows = await query_findings(session, base)
+    current_keys = {row.dedup_key for row in current_rows}
+    base_keys = {row.dedup_key for row in base_rows}
+
+    return ScanDiff(
+        scan_id=scan.id,
+        against_scan_id=base.id,
+        new=[row for row in current_rows if row.dedup_key not in base_keys],
+        resolved=[row for row in base_rows if row.dedup_key not in current_keys],
+        persisting=len(current_keys & base_keys),
+    )
+
+
+async def rotate_api_key(session: AsyncSession, tenant: Tenant) -> str:
+    """Yangi API kalit beradi. Eski kalit shu zahoti ishlamaydi."""
+    raw = generate_api_key()
+    tenant.api_key_hash = hash_api_key(raw)
+    tenant.api_key_prefix = display_prefix(raw)
+    await session.commit()
+    await session.refresh(tenant)
+    log.info("tenant %s uchun API kalit almashtirildi", tenant.id)
+    return raw
+
+
+async def prune_scans(
+    session: AsyncSession, *, older_than_days: int, dry_run: bool = False
+) -> tuple[int, int]:
+    """Saqlash siyosatidan eski skanlarni o'chiradi. (skanlar, topilmalar)."""
+    if older_than_days < 1:
+        raise ValueError("older_than_days >= 1 bo'lishi kerak")
+
+    cutoff = utcnow() - timedelta(days=older_than_days)
+    scan_ids = list(await session.scalars(select(Scan.id).where(Scan.created_at < cutoff)))
+    if not scan_ids:
+        return 0, 0
+
+    finding_count = await session.scalar(
+        select(func.count()).select_from(Finding).where(Finding.scan_id.in_(scan_ids))
+    )
+
+    if dry_run:
+        return len(scan_ids), int(finding_count or 0)
+
+    await session.execute(delete(Finding).where(Finding.scan_id.in_(scan_ids)))
+    await session.execute(delete(Scan).where(Scan.id.in_(scan_ids)))
+    await session.commit()
+    log.info("prune: %d skan, %d topilma o'chirildi", len(scan_ids), finding_count)
+    return len(scan_ids), int(finding_count or 0)
+
+
+# --------------------------------------------------------------------------
+# Hisobot
+# --------------------------------------------------------------------------
+
+
+def _to_contract(row: Finding) -> FindingContract:
+    return FindingContract(
+        category=Category(row.category),
+        title=row.title,
+        severity=Severity(row.severity),
+        cvss=row.cvss,
+        cve=row.cve or [],
+        cwe=row.cwe or [],
+        location=row.location,
+        evidence=row.evidence or {},
+        source_tools=row.source_tools or [],
+        dedup_key=row.dedup_key,
+        remediation=Remediation(**row.remediation) if row.remediation else None,
+    )
+
+
+async def build_report_context(session: AsyncSession, tenant: Tenant, scan: Scan) -> dict[str, Any]:
+    """PDF uchun kontekst. Faqat DB'dagi tasdiqlangan natijalar ishlatiladi."""
+    target = await session.get(Target, scan.target_id)
+    rows = await list_findings(session, scan)
+    duration_ms = 0
+    if scan.started_at and scan.finished_at:
+        duration_ms = int((scan.finished_at - scan.started_at).total_seconds() * 1000)
+
+    return build_context(
+        scan_id=str(scan.id),
+        target=target.value if target else "—",
+        tenant_name=tenant.name,
+        findings=[_to_contract(r) for r in rows],
+        engines=scan.engine_stats or [],
+        duration_ms=duration_ms,
+    )

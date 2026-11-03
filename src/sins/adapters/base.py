@@ -36,4 +36,14 @@ class Adapter(Protocol):
 
     def available(self) -> bool: ...
 
+    def applies_to(self, target: str) -> bool:
+        """Bu adapter shu nishon turiga mantiqan mos keladimi?
+
+        Nega kerak: `osv-scanner` faqat lokal papka/lockfile bilan ishlaydi.
+        URL'ga qarshi ishga tushirilsa — tool osilib qoladi va natija bermaydi.
+        Mos kelmasa, orkestrator adapterni umuman chaqirmaydi va hisobotda
+        "o'tkazib yuborildi" deb ko'rsatadi.
+        """
+        ...
+
     def run(self, ctx: ScanContext) -> list[FindingContract]: ...
