@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sins
+          POSTGRES_PASSWORD: sins
+          POSTGRES_DB: sins_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sins -d sins_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      SINS_DATABASE_URL: postgresql+asyncpg://sins:sins@localhost:5432/sins_test
+      SINS_TEST_DATABASE_URL: postgresql+asyncpg://sins:sins@localhost:5432/sins_test
+      SINS_REDIS_URL: redis://localhost:6379/15
+      SINS_RATE_LIMIT_ENABLED: "false"
+      SINS_LOG_JSON: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.13
+      - run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check src/ tests/ scripts/
+
+      - name: Format check
+        run: uv run ruff format --check src/ tests/ scripts/
+
+      - name: Migratsiya sxemasi modelga mos
+        run: uv run alembic check
+
+      - name: Testlar
+        run: uv run pytest -q --cov=sins --cov-report=term-missing

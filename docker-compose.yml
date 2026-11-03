@@ -1,4 +1,22 @@
+# Lokal stack: `docker compose up -d` → Postgres + Redis.
+# API va worker ham konteynerda kerak bo'lsa: `docker compose --profile app up -d`.
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sins
+      POSTGRES_PASSWORD: sins
+      POSTGRES_DB: sins
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sins -d sins"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     ports:
@@ -12,5 +30,36 @@ services:
       timeout: 3s
       retries: 5
 
+  api:
+    profiles: ["app"]
+    build: .
+    environment:
+      SINS_DATABASE_URL: postgresql+asyncpg://sins:sins@postgres:5432/sins
+      SINS_REDIS_URL: redis://redis:6379/0
+      SINS_LOG_JSON: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["sins", "serve", "--host", "0.0.0.0", "--port", "8000"]
+
+  worker:
+    profiles: ["app"]
+    build: .
+    environment:
+      SINS_DATABASE_URL: postgresql+asyncpg://sins:sins@postgres:5432/sins
+      SINS_REDIS_URL: redis://redis:6379/0
+      SINS_LOG_JSON: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["sins", "worker"]
+
 volumes:
+  pg-data:
   redis-data:
