@@ -8,3 +8,6 @@ dist/
 build/
 *.egg-info/
 out/
+.coverage
+coverage.xml
+htmlcov/
