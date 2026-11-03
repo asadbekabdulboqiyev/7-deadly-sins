@@ -1,81 +1,63 @@
-# Arxitektura qarorlari (ADR)
+# SINS — qarorlar hujjati (ADR)
 
-## ADR-001 — Hydra brute-force, DDoS stress-test va qo'lda exploit v1 dan chiqarildi
+Barcha arxitekturiy qarorlar shu yerda qayd etiladi.
 
-**Sana:** 2026-10-31
-**Holat:** qabul qilindi
+## ADR-1: 7 sin → 4 tayyor tool (Greed, Sloth, Pride, Envy)
 
-### Kontekst
-Dastlabki rejada 7 ta modul bor edi: Lust (Hydra brute-force), Gluttony
-(DDoS/stress test), Wrath (SQLi/XSS payload yuborish).
+**Holat:** qabul qilindi.
 
-### Qaror
-Uchala modul ham v1 dan chiqarildi. Ularning funksiyasi nuclei
-template'lari orqali qoplanadi (auth, rate-limit, exploit tekshiruvlari),
-lekin **bizning kodimiz hech qanday payload yozmaydi**.
+Nechta o'z skaner yozish (6 oy) o'rniga, tayyor open-source skanerlarni orkestrlaymiz:
+- nuclei (Greed — CVE), osv-scanner (Sloth — dependency), subfinder+naabu+httpx (Pride — attack surface), sslyze (Envy — SSL/TLS).
 
-### Sabab
-1. **Huquqiy** — ruxsatsiz brute-force/exploit = jinoyat. Nishon egaligi
-   isbotlansa ham, noto'g'ri konfiguratsiya bitta mijozni jinoiy javobgarlikka
-   olib boradi.
-2. **Operatsion** — DDoS-as-a-service hosting provayderlari tomonidan
-   48 soat ichida bloklanadi.
-3. **Texnik** — Hydra chiqishi mashina o'qiy olmaydigan matn; parsing
-   ishonchsiz.
+**Sabab:** Ishlash tezligi, 10 000+ nuclei template, `FindingContract` shartnomasi orqali birlash.
 
-### Natija
-Huquqiy risk minimallashtirildi. Mahsulot "xakerlik vositasi" emas,
-"audit platformasi" sifatida pozitsiyalanadi.
+**Cheklov:** Hydra brute-force, DDoS, qo'lda exploit payload v1 dan chiqarilgan (huquqiy javobgarlik).
 
----
+## ADR-2: PostgreSQL (MongoDB o'rniga)
 
-## ADR-002 — PostgreSQL, MongoDB emas
+**Holat:** qabul qilindi.
 
-### Qaror
-PostgreSQL.
+State, findings, JSONB evidence uchun PostgreSQL. SQLAlchemy + Alembic sxema boshqaruvi.
 
-### Sabab
-- Finding'lar relatsion: `scan → target → finding → evidence → remediation`
-- Dedup/korrelyatsiya uchun JOIN kerak
-- Xom tool chiqishi uchun `jsonb` + GIN index yetarli (Mongo'ning asosiy
-  afzalligi yo'qoladi)
-- Multi-tenancy uchun Row-Level Security
-- `pg_trgm` — fuzzy CVE matching; `tsvector` — qidiruv
+## ADR-3: `applies_to` adapter filtering (osv hangini oldini olish)
 
----
+**Holat:** qabul qilindi.
 
-## ADR-003 — nuclei, `nmap --script vulners` emas
+Har bir adapter `applies_to(target) -> bool` beradi. Mos kelmagan engine ishga tushirilmaydi va `EngineReport(skipped=True, skip_reason=...)` orqali progress callbackga yuboriladi (progress 100% ga yetadi). PDF da skipped engine "—" / "o'tkazib yuborildi" ko'rinadi.
 
-### Sabab
-- `vulners` pullik API key talab qiladi
-- Service version → CVE mapping false positive darajasi juda yuqori
-- nuclei `-jsonl` barqaror format beradi va 10 000+ tayyor template bor
+| Nishon | nuclei | osv |
+|---|---|---|
+| domain/url/ip | ✅ | — |
+| lokal papka | — | ✅ |
 
----
+**Sabab:** `osv-scanner` URL'ga qarshi ishga tushirilganda osilib qoladi (real hodisa).
 
-## ADR-004 — `correlate()` da `sub_id` majburiy
+## ADR-4: Alembic sxema manba (`init-db` faqat dev)
 
-### Kontekst
-Birinchi implementatsiyada korrelyatsiya kaliti `host + title` edi.
-`http-missing-security-headers` template'i 10 ta alohida muammo qaytardi
-(har biri boshqa header), lekin ular **bitta** finding'ga birlashib ketdi.
+**Holat:** qabul qilindi.
 
-### Qaror
-`FindingContract.sub_id` qo'shildi. CVE bo'lmasa kalit:
-`host + title + sub_id`. nuclei adapteri `sub_id = matcher-name` beradi.
+`alembic.ini` da URL yo'q (`SINS_DATABASE_URL` dan `migrations/env.py` oladi). `prepend_sys_path = %(here)s/src`. `alembic upgrade head` — sxema manba. `init-db` — faqat lokal dev (`--drop` bilan).
 
-### Natija
-10 ta header = 10 ta finding. CVE bo'lsa esa ikki tool natijasi baribir
-birlashadi.
+**Tekshiruv:** `uv run alembic check` — "No new upgrade operations detected" bo'lishi kerak (model ↔ migration drift yo'q).
 
----
+## ADR-5: API kalit xavfsizligi (SHA-256 hash, bir marta ko'rsatiladi)
 
-## ADR-005 — Egress IP alohida boshqariladi
+**Holat:** qabul qilindi.
 
-### Qaror
-Skan container ichida, alohida network namespace va alohida egress IP
-pool bilan ishlaydi. Worker hech qachon to'g'ridan-to'g'ri skanlamaydi.
+`Tenant.api_key_hash` — SHA-256 hash. `api_key_prefix` — ko'rsatish uchun. Raw key `sins create-tenant` da faqat bir marta chiqariladi. Frontend'ga API key tushmaydi.
 
-### Sabab
-Bitta IP'dan ko'p skan → blocklist + hosting akkaunti yopiladi. PTR yozuvi
-`scanner.<domen>` bo'lishi shart.
+## ADR-6: Queue (ARQ → inline fallback)
+
+**Holat:** qabul qilindi.
+
+ARQ worker (max_jobs=2). Redis yo'q bo'lda API `asyncio.create_task` orqali inline bajaradi. `GET /healthz` → `queue: ok|inline`.
+
+## Yo'l xaritasi
+
+| Bosqich | Holat |
+|---|---|
+| 0 — poydevor | ✅ |
+| 1 — DB + API | ✅ |
+| 2 — 2-modul + PDF | ✅ |
+| 3 — dashboard | ⏳ |
+| 4 — pilot | ⏳ |
