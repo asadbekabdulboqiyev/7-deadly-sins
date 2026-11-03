@@ -10,6 +10,7 @@ Oxirgi yangilanish: 2026-11-03
 | Ko'rsatkich | Qiymat |
 |---|---|
 | Testlar | **197 passed** (`uv run pytest -q`) |
+| Qamrov | 73% (`pytest --cov=sins`) |
 | Lint | `ruff check` + `ruff format --check` — toza |
 | Migratsiya | `9a1f4c7d2b30` — `alembic check` toza |
 | API versiya | 0.2.0 |

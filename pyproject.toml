@@ -1,6 +1,6 @@
 [project]
 name = "sins"
-version = "0.1.0"
+version = "0.2.0"
 description = "Attack surface & vulnerability assessment platform (internal codename: 7sins)"
 requires-python = ">=3.13"
 dependencies = [
@@ -27,6 +27,7 @@ sins = "sins.cli:app"
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
     "ruff>=0.8",
 ]
 

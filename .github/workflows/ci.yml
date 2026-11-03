@@ -58,6 +58,9 @@ jobs:
       - name: Format check
         run: uv run ruff format --check src/ tests/ scripts/
 
+      - name: Migratsiyalarni qo'llash
+        run: uv run alembic upgrade head
+
       - name: Migratsiya sxemasi modelga mos
         run: uv run alembic check
 
