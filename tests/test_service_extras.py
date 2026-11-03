@@ -466,6 +466,26 @@ async def test_severity_counts_include_all_levels(session, tenant) -> None:
     assert set(counts) == {"critical", "high", "medium", "low", "info"}
 
 
+async def test_finding_counts_for_many_scans(session, tenant) -> None:
+    owner, _ = tenant
+    first = await _scan(session, owner, await _target(session, owner, "http://localhost:8001"))
+    second = await _scan(session, owner, await _target(session, owner, "http://localhost:8002"))
+    empty = await _scan(session, owner, await _target(session, owner, "http://localhost:8003"))
+    await _finding(session, owner, first, "a")
+    await _finding(session, owner, first, "b")
+    await _finding(session, owner, second, "c")
+
+    counts = await scan_service.finding_counts(session, [first.id, second.id, empty.id])
+
+    # Topilmasi yo'q skan lug'atda umuman yo'q — chaqiruvchi `.get(id, 0)` ishlatadi.
+    assert counts == {first.id: 2, second.id: 1}
+    assert counts.get(empty.id, 0) == 0
+
+
+async def test_finding_counts_handles_empty_input(session) -> None:
+    assert await scan_service.finding_counts(session, []) == {}
+
+
 async def test_unknown_scan_raises_not_found(session, tenant) -> None:
     owner, _ = tenant
     with pytest.raises(scan_service.NotFound):

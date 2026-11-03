@@ -9,7 +9,7 @@ Oxirgi yangilanish: 2026-11-03
 
 | Ko'rsatkich | Qiymat |
 |---|---|
-| Testlar | **197 passed** (`uv run pytest -q`) |
+| Testlar | **200 passed** (`uv run pytest -q`) |
 | Qamrov | 73% (`pytest --cov=sins`) |
 | Lint | `ruff check` + `ruff format --check` — toza |
 | Migratsiya | `9a1f4c7d2b30` — `alembic check` toza |
@@ -56,10 +56,10 @@ Oxirgi yangilanish: 2026-11-03
 ### Testlar (197)
 | Fayl | Soni | Nima |
 |---|---|---|
-| `test_service_extras.py` | 34 | idempotentlik, cancel, diff, rotate, prune, sahifalash |
+| `test_service_extras.py` | 36 | idempotentlik, cancel, diff, rotate, prune, sahifalash |
 | `test_targets.py` | 27 | nishon klassifikatsiyasi, lab cheklovi |
 | `test_observability.py` | 23 | log formatlari, metrikalar |
-| `test_api_extras.py` | 16 | idempotency, pagination, diff, tenant, /metrics |
+| `test_api_extras.py` | 17 | idempotency, pagination, diff, tenant, /metrics |
 | `test_orchestrator_retry.py` | 14 | retry siyosati |
 | `test_scan_service.py` | 13 | hayotiy sikl, tenant izolyatsiyasi |
 | `test_middleware.py` | 13 | request ID, rate limit, metrika |
@@ -87,7 +87,7 @@ Majburiy — yo'q. Quyidagilar ixtiyoriy/kelajak:
 
 ```bash
 cd /Users/asadbek/sins
-uv run pytest -q                                    # 197 passed
+uv run pytest -q                                    # 200 passed
 uv run ruff check src/ tests/ scripts/              # toza
 uv run ruff format --check src/ tests/ scripts/     # toza
 uv run alembic check                                # "No new upgrade operations"

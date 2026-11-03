@@ -307,6 +307,22 @@ async def count_findings(
     return len(await query_findings(session, scan, severities=severities, engine=engine))
 
 
+async def finding_counts(session: AsyncSession, scan_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    """Bir nechta skan uchun topilmalar soni — bitta so'rov (N+1 yo'q).
+
+    Qaytgan lug'atda faqat topilmasi bor skanlar bo'ladi; chaqiruvchi
+    `.get(scan_id, 0)` bilan ishlatadi.
+    """
+    if not scan_ids:
+        return {}
+    rows = await session.execute(
+        select(Finding.scan_id, func.count())
+        .where(Finding.scan_id.in_(scan_ids))
+        .group_by(Finding.scan_id)
+    )
+    return {scan_id: int(count) for scan_id, count in rows}
+
+
 def severity_counts(rows: list[Finding]) -> dict[str, int]:
     """Har bir og'irlik bo'yicha soni — dashboard va PDF uchun."""
     counts = {level.value: 0 for level in Severity}

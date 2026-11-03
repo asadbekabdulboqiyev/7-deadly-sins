@@ -197,6 +197,17 @@ async def test_scans_pagination(monkeypatch, client, tenant) -> None:
     assert first.json()[0]["id"] != second.json()[0]["id"]
 
 
+async def test_scans_list_includes_finding_count(monkeypatch, client, tenant) -> None:
+    _, api_key = tenant
+    monkeypatch.setattr(scan_service, "SinsOrchestrator", FakeOrchestrator)
+    scan = await _done_scan(client, api_key, "http://localhost:8085")
+
+    listed = await client.get("/scans", headers=_auth(api_key))
+    assert listed.status_code == 200
+    row = next(item for item in listed.json() if item["id"] == scan["id"])
+    assert row["finding_count"] == 3
+
+
 # ---------------------------------------------------------------------------
 # Bekor qilish va diff
 # ---------------------------------------------------------------------------

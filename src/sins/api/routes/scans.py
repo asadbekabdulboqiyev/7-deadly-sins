@@ -127,7 +127,8 @@ async def list_scans(
         status_filter=_as_filter(status_filter),
         target_id=target_id,
     )
-    return [_to_out(s) for s in scans]
+    counts = await scan_service.finding_counts(session, [s.id for s in scans])
+    return [_to_out(s, counts.get(s.id, 0)) for s in scans]
 
 
 @router.get("/{scan_id}", response_model=ScanOut)

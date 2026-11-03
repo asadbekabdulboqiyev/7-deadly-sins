@@ -88,6 +88,8 @@ Content-Type: application/json
 
 ### `GET /scans?limit=50&offset=0&status=done&target_id=…` → 200
 
+Har bir element `ScanOut` + `finding_count` (bitta guruhlangan so'rov bilan).
+
 `limit` 1–500. `status` takrorlanishi mumkin (`?status=done&status=failed`) yoki
 vergul bilan (`?status=done,failed`).
 
