@@ -1,117 +1,111 @@
-# AI-HANDOFF — bu loyihada ishlaydigan AI uchun qo'llanma
+# AI Handoff — Instructions for the AI Working on This Project
 
-> **Avval shuni o'qi.** Bu fayl — loyihaga keyin qo'shilgan AI uchun ish
-> qoidalari, buyruqlar, tuzoqlar va topshirilgan vazifalar ro'yxati.
-> Holat uchun: `PROGRESS.md` (yagona progress fayli). Arxitektura uchun:
-> `docs/ARCHITECTURE.md`.
->
-> Oxirgi tekshirilgan holat: 2026-11-04 — 252 test, 76% qamrov, lint toza,
-> `alembic check` toza.
+> **Read this first.** This file is the working instruction set for any AI that
+> joins the project later. The current state lives in `PROGRESS.md` (the single
+> progress file). Architecture: `docs/ARCHITECTURE.md`.
+
+> Last verified state: 2026-11-04 — 280 tests, lint clean, format clean,
+> `alembic check` clean.
 
 ---
 
-## 0. 30 sekundda kontekst
+## 0. Context in 30 seconds
 
-**Mahsulot:** "7 Deadly Sins" — avtomatlashtirilgan zaiflik/tashqi yuzani
-baholash platformasi. 7 ta inglizcha gunoh nomli modul; har biri tayyor OSS
-tool'ning yupqa adapteri.
+**Product:** "7 Deadly Sins" — an automated exposure / vulnerability surface
+assessment platform. Seven English sin-named modules, each backed by a ready
+open-source tool adapter.
 
-**Ikki papka:**
+**Two folders:**
 
-| Papka | Nima |
+| Folder | What |
 |---|---|
-| `/Users/asadbek/sins` | Backend: FastAPI + PostgreSQL + ARQ worker + adapterlar |
-| `/Users/asadbek/sins-site` | Marketing sayt (statik, hozircha API'siz) |
+| `/Users/asadbek/sins` | Backend: FastAPI + PostgreSQL + ARQ worker + adapters |
+| `/Users/asadbek/sins-site` | Marketing site (static, no API wired yet) |
 
-**Ishlaydigan engine'lar:** `nuclei` (Greed), `osv-scanner` (Sloth),
-`subfinder`+`naabu`+`httpx` (Pride), `sslyze` (Envy).
-**Preview:** Lust, Gluttony, Wrath.
+**Running engines:** `nuclei` (Greed), `osv-scanner` (Sloth),
+`subfinder` + `naabu` + `httpx` (Pride), `sslyze` (Envy), `httpx` (Lust),
+`httpx` (Gluttony), nuclei templates via `Wrath`.
 
-**Birinchi buyruqlar (majburiy):**
+**First commands (mandatory):**
 
 ```bash
 cd /Users/asadbek/sins
-git status --short          # toza bo'lishi kerak
-uv run pytest -q            # 252 passed
+git status --short          # must be clean
+uv run pytest -q            # 280 passed
 uv run ruff check src/ tests/ scripts/
 uv run ruff format --check src/ tests/ scripts/
 uv run alembic check        # "No new upgrade operations detected"
 ```
 
-Agar shu to'rttasi yashil bo'lmasa — **yangi ish boshlamang**, avval sababini
-toping.
+If any of these is red — **do not start new work**, first find the cause.
 
 ---
 
-## 1. Buzilmaydigan qoidalar
+## 1. Immutable rules
 
-1. **Nom va til.** Mahsulot nomi aynan `7 Deadly Sins`. Modullar inglizcha
-   gunoh nomlari bilan (`Pride`, `Envy`, ...). Sayt matni inglizcha.
-2. **Finding tili.** `title` — **inglizcha** (texnik fakt), `remediation`
-   matni — **o'zbekcha**. Har bir finding'da `Remediation` bo'lishi shart.
-   `tests/test_*_engine.py` ichida `title.isascii()` tekshiruvi bor.
-3. **Hech qanday skaner/exploit/brute-force/DDoS logikasi yozilmaydi.**
-   Faqat mavjud OSS tool'ni chaqirish, chiqishini `FindingContract` ga
-   aylantirish. Bu — huquqiy pozitsiya, kelishilgan qaror
-   (`docs/DECISIONS.md`).
-4. **Testni o'chirish/zaiflashtirish — taqiqlanadi.** `pytest.skip(...)` bilan
-   mavjud testni almashtirish, assertion'ni olib tashlash yoki testni
-   "o'tadigan" qilib yozish qabul qilinmaydi. Eski testni o'zgartirish kerak
-   bo'lsa — sababini commit xabarida yozing.
-5. **Sxemani o'ylab topmang.** Har qanday tool chiqishini **real tool** bilan
-   tekshiring (`--help`, kichik nishonda bir marta ishga tushirish). Bu
-   loyihada aynan shu xato bir marta qilingan (4-bo'limga qarang).
-6. **Sirlar.** API kalit, `.env`, DB dump — kodga ham, gitga ham yozilmaydi.
-7. **`PROGRESS.md`** har seans oxirida yangilanadi (sana, test soni, nima
-   bajarildi, nima qoldi).
-8. **Aniqlik.** Talab noaniq bo'lsa — savol bering. O'zboshimchalik bilan
-   "yaxshilash" qo'shmang.
-9. **O'zbekcha matn.** ASCII apostrof `'` (`o'`, `g'`). Mashina tarjimasi
-   uslubida yozmang: "hunarmandchilik qilinadi", "vaqdigan" kabi iboralar
-   mumkin emas. Qisqa, aniq, texnik til.
-10. **Ishni isbotlang.** "Tayyor" deyishdan oldin buyruqni **haqiqatan**
-    ishga tushirib chiqishni ko'rsating (`sp-verification-before-completion`).
+1. **Product name.** Exactly `7 Deadly Sins`. Module names are English sins
+   (`Pride`, `Envy`, ...). Site copy is English.
+2. **Finding language.** All user-facing strings are English: finding
+   `title`, `remediation.summary`, `steps`, risk grades (`CRITICAL` / `HIGH` /
+   `MEDIUM` / `LOW` / `NONE`). ASCII apostrophe `'` (e.g. `o'zgaruvchi`). No
+   Cyrillic characters anywhere in text files. No machine-translation style.
+3. **No scanner / exploit / brute-force / DDoS logic.** Only orchestrating
+   existing OSS tools and converting output into `FindingContract`. This is the
+   legal positioning; the decision is recorded in `docs/DECISIONS.md`.
+4. **Tests cannot be skipped or weakened.** Replacing a live test with a
+   `pytest.skip(...)` stub, removing an assertion, or writing a test that passes
+   by failing is rejected. If an old test must change, state the reason in the
+   commit message.
+5. **Verify schemas against the real tool before trusting them.** Every tool
+   output contract was validated once in this project (see section 4).
+6. **Secrets.** API keys, `.env`, DB dumps — never in code or git.
+7. **`PROGRESS.md`** is updated after each session (date, test count, what was
+   done, what is left).
+8. **Precision.** If the requirement is vague — ask. Do not add your own
+   initiative.
+9. **Proof the work.** Before saying "ready", run the command and show the
+   output (`sp-verification-before-completion`).
 
 ---
 
-## 2. Buyruqlar
+## 2. Commands
 
 ```bash
-# O'rnatish
+# Setup
 cd /Users/asadbek/sins
 uv sync
 
-# Testlar (PostgreSQL `sins_test` bazasida; conftest o'zi yaratadi)
+# Tests (PostgreSQL `sins_test` database; conftest creates it)
 uv run pytest -q
-uv run pytest tests/test_pride_engine.py -q          # bitta fayl
-uv run pytest -q -k "envy and hsts"                  # nom bo'yicha
-uv run pytest -q --cov=sins --cov-report=term        # qamrov
+uv run pytest tests/test_pride_engine.py -q          # one file
+uv run pytest -q -k "envy and hsts"                  # by name
+uv run pytest -q --cov=sins --cov-report=term        # coverage
 
 # Lint / format
 uv run ruff check src/ tests/ scripts/
-uv run ruff format src/ tests/ scripts/              # yozish
-uv run ruff format --check src/ tests/ scripts/      # tekshirish
+uv run ruff format src/ tests/ scripts/              # write
+uv run ruff format --check src/ tests/ scripts/      # check
 
-# Migratsiya
+# Migrations
 uv run alembic upgrade head
 uv run alembic check
-uv run alembic revision --autogenerate -m "izoh"
+uv run alembic revision --autogenerate -m "note"
 
-# API (lokal)
+# API (local)
 uv run sins serve --port 8000
-# fon rejimida:
+# background:
 nohup uv run sins serve --port 8010 > /tmp/sins-api-8010.log 2>&1 &
 
-# Worker (Redis kerak)
+# Worker (requires Redis)
 uv run sins worker
 
 # CLI
 uv run sins --help
-uv run sins tenant "Mijoz nomi"      # yangi tenant + API kalit
-uv run sins demo                     # to'liq demo oqimi
+uv run sins tenant "Client name"       # new tenant + API key
+uv run sins demo                      # full pipeline demo
 uv run sins prune --days 30 --dry-run
 
-# To'g'ridan-to'g'ri adapterni sinash (tarmoqsiz ham mumkin)
+# Direct adapter smoke test (works without extra tooling)
 uv run python - <<'PY'
 from sins.adapters.envy import EnvyAdapter
 from sins.adapters.base import ScanContext
@@ -120,46 +114,47 @@ for f in EnvyAdapter().run(ScanContext(target="https://127.0.0.1:8443", timeout=
 PY
 ```
 
-**Test bazasi qoidasi:** `tests/conftest.py` faqat nomi `_test` bilan
-tugaydigan bazada ishlaydi. `SINS_TEST_DATABASE_URL` bilan almashtiriladi.
-Testlar dev bazaga (`sins`) **tegmaydi** — agar `alembic check` kutilmagan
-jadval ko'rsatsa, o'sha jadval dev bazada qolgan bo'ladi (bir marta shunday
-bo'lgan: `tmp_parent_test`).
+**Test database rule:** `tests/conftest.py` only runs against a database name
+ending with `_test`. Override with `SINS_TEST_DATABASE_URL`. Tests never touch
+the dev database (`sins`).
 
 ---
 
-## 3. Kod xaritasi — qayerga tegish kerak
+## 3. Code map — where things live
 
-| Fayl / papka | Vazifa | Tegish mumkinmi |
+| File / folder | Task | Editable |
 |---|---|---|
-| `src/sins/schemas.py` | `FindingContract`, `Severity`, `Category` | Faqat kelishib |
-| `src/sins/models.py` | SQLAlchemy modellari | Migratsiya bilan |
-| `src/sins/adapters/base.py` | `Adapter` protokoli, `ScanContext` | Ehtiyotkorlik bilan |
-| `src/sins/adapters/*.py` | Har bir gunoh adapteri | ✅ asosiy ish maydoni |
-| `src/sins/runner.py` | Xavfsiz subprocess (`run_tool`, `which`) | Ehtiyotkorlik bilan |
-| `src/sins/dedup.py` | `dedup_key`, `correlate` | Faqat test bilan |
-| `src/sins/orchestrator.py` | Parallel ishga tushirish, retry | Ehtiyotkorlik bilan |
-| `src/sins/services/scan_service.py` | Butun biznes-logika | Test bilan |
-| `src/sins/api/` | FastAPI route'lar | ✅ |
-| `src/sins/config.py` | Sozlamalar (`SINS_*`) | ✅ |
-| `src/sins/targets.py` | Nishon klassifikatsiyasi | Ehtiyotkorlik bilan |
-| `tests/` | Testlar | ✅ |
-| `docs/` | Hujjatlar | ✅ |
+| `src/sins/schemas.py` | `FindingContract`, `Severity`, `Category` | With care |
+| `src/sins/models.py` | SQLAlchemy models | With migration |
+| `src/sins/adapters/base.py` | `Adapter` protocol, `ScanContext` | Careful |
+| `src/sins/adapters/*.py` | One adapter per sin | **Main work area** |
+| `src/sins/drift.py` | Exposure fingerprint / weight / score / age | New |
+| `src/sins/services/drift_service.py` | Finding-state upsert + timeline | New |
+| `src/sins/runner.py` | Safe subprocess (`run_tool`, `which`) | Careful |
+| `src/sins/dedup.py` | `dedup_key`, `correlate` | Tests only |
+| `src/sins/orchestrator.py` | Parallel run, retry | Careful |
+| `src/sins/services/scan_service.py` | All business logic | Tests |
+| `src/sins/api/` | FastAPI routes | OK |
+| `src/sins/config.py` | Settings (`SINS_*`) | OK |
+| `src/sins/targets.py` | Target classification | Careful |
+| `tests/` | Tests | OK |
+| `docs/` | Docs | OK |
+| `migrations/versions/` | Alembic migrations | With migration |
 
-**Adapter qo'shish tartibi:**
+**Adding an adapter, in order:**
 
 1. `src/sins/adapters/<sin>.py` — `available()`, `applies_to()`, `run()`.
-2. `src/sins/adapters/__init__.py` — `REGISTRY` ga qo'shish.
-3. `src/sins/config.py` va `.env.example` — `SINS_ALLOWED_ENGINES` ga qo'shish.
-4. `tests/test_<sin>_engine.py` — real chiqish fixture'lari bilan testlar.
-5. `README.md` (sin→tool jadvali), `docs/ARCHITECTURE.md` (modul xaritasi).
-6. `PROGRESS.md` — holat va test soni.
+2. Register in `src/sins/adapters/__init__.py` `REGISTRY`.
+3. Add to `SINS_ALLOWED_ENGINES` in `src/sins/config.py` and `.env.example`.
+4. Add `tests/test_<sin>_engine.py` — tests with real-output fixtures.
+5. Update `README.md` (sin→tool table), `docs/ARCHITECTURE.md` (module map).
+6. Update `PROGRESS.md`.
 
 ---
 
-## 4. Real tool chiqishi — tekshirilgan faktlar
+## 4. Real tool output — verified facts
 
-Bu bo'lim **aynan shu loyihada** xato qilingan joy. Sxemani taxmin qilmang.
+This section covers the places where a previous AI made mistakes.
 
 ### `naabu` (v2.16)
 
@@ -167,14 +162,14 @@ Bu bo'lim **aynan shu loyihada** xato qilingan joy. Sxemani taxmin qilmang.
 naabu -list hosts.txt -json -silent -rate 100
 ```
 
-Har bir **port** uchun alohida JSON satr (JSONL), `ports` massivi **yo'q**:
+One JSON line **per port** (JSONL), no `ports` array:
 
 ```json
 {"ip":"93.184.216.34","port":443,"protocol":"tcp","tls":true}
 ```
 
-- Rate bayrog'i `-rate` (eski `-rate-limit` **mavjud emas**, exit 2 beradi).
-- `-list` fayl qabul qiladi.
+- Rate flag is `-rate` (the old `-rate-limit` does not exist, exits 2).
+- `-list` accepts a file.
 
 ### `httpx` (v1.10, ProjectDiscovery)
 
@@ -184,12 +179,11 @@ httpx -list hosts.txt -json -silent -ports 80,443,8080
 
 JSONL: `{"url": "...", "status_code": 200, "title": "...", "webserver": "...", "tech": [...], "failed": false}`.
 
-**Muhim tuzoq:** Python `httpx` — loyihaning dev dependency'si (FastAPI test
-klienti), shuning uchun `.venv/bin/httpx` **doim** mavjud va `uv run` ichida
-PATH'da birinchi turadi. U ProjectDiscovery binary'sini soya qiladi. Shuning uchun
-`pride.py` da `_resolve_tool()` bor: `SINS_HTTPX_BIN` → PATH → `~/go/bin` va
-h.k.; binary `-version` chiqishida `projectdiscovery` bo'lishi shart.
-Yangi tool qo'shsangiz, xuddi shu naqshni ishlating.
+**Critical trap:** the Python `httpx` package is a dev dependency of this
+project (FastAPI test client), so `.venv/bin/httpx` **always** exists and wins
+over the PATH inside `uv run`. That is why `pride.py` has `_resolve_tool()`:
+`SINS_HTTPX_BIN` → PATH → `~/go/bin` and others; the binary must report
+`projectdiscovery` on `-version`.
 
 ### `subfinder` (v2.16)
 
@@ -198,7 +192,7 @@ subfinder -d example.com -json -silent
 ```
 
 JSONL: `{"host": "www.example.com", "input": "example.com", "source": "crtsh"}`.
-Faqat domen nishonlarida ishlaydi (IP/URL uchun ma'nosiz).
+Only for domain inputs (no value for IP/URL).
 
 ### `sslyze` (6.x, CLI)
 
@@ -208,163 +202,117 @@ sslyze --certinfo --compression --http_headers \
        --json_out - host:port
 ```
 
-- `--regular` **olib tashlangan** (6.x), `--jsonfile` degan flag **yo'q** —
-  `--json_out -` stdout'ga JSON beradi.
-- Struktura: `server_scan_results[] → scan_result.<plugin> → {status, result}`.
-- `status` `COMPLETED` bo'lmasa (`NOT_SCHEDULED`, `ERROR`) — o'tkazib yuboriladi.
-- Sertifikat: `certificate_info.result.certificate_deployments[0]`
-  (`received_certificate_chain[0].not_valid_after` ISO-8601,
-  `path_validation_results[]`, `verified_chain_has_sha1_signature`).
-- Namuna: `/tmp/envy-lab/out.json` (lokal TLS serverdan olingan).
+- `--regular` was removed (6.x); `--jsonfile` does not exist — use `--json_out -`.
+- Structure: `server_scan_results[] → scan_result.<plugin> → {status, result}`.
+- `status` must be `COMPLETED`; `NOT_SCHEDULED` / `ERROR` → skip.
+- Certificate: `certificate_info.result.certificate_deployments[0]`
+  (`received_certificate_chain[0].not_valid_after` ISO-8601, ...).
+- Sample: `/tmp/envy-lab/out.json`.
 
 ### `nuclei` (v3.11)
 
-`-jsonl -silent`; `exit 1` = topilma bor (xato emas). `runner.RunResult.ok`
-faqat `returncode == 0` ni "ok" deb biladi — nuclei adapteri buni alohida
-hal qiladi.
+`-jsonl -silent`; exit `1` means findings present (not an error). The
+`runner.RunResult.ok` property only checks `returncode == 0` — the nuclei
+adapter handles this separately.
+
+### Lust (auth posture) — added 2026-11-04
+
+- Probe: `httpx -list <hosts> -json -silent -irr -x GET` (httpx binary, JSONL).
+- Response payload keys: `failed`, `scheme`, `url`, `host`, `body`,
+  `content_type`, `raw_header`.
+- `raw_header` is a full raw HTTP response string; header names are lowercased
+  **with hyphen** (`www-authenticate`, `set-cookie`).
+- Checks: Basic over plain HTTP, login form over plain HTTP, cookie Secure /
+  HttpOnly / SameSite, JWT structural hygiene (alg=none, missing exp, long-lived).
+- Deliberately excludes brute force / credential guessing.
+
+### Gluttony (resilience posture) — added 2026-11-04
+
+- Two probes: GET (server header, X-Powered-By) and OPTIONS (Allow header).
+- Dangerous methods: `PUT`, `DELETE`, `PATCH`, `TRACE` intersect with allowed set.
+- Deliberately excludes load/stress testing.
+
+### Wrath (exploit confirmation) — added 2026-11-04
+
+- Re-runs nuclei with `-t <templates>` from `ScanContext.templates`.
+- Confirms a nuclei finding when a prior finding matches: same `dedup_key` or
+  CVE intersection.
+- Confirmed finding: title prefix `Confirmed exploit: `, evidence
+  `confirmed: true`, source `wrath`, `source_tools: ["nuclei", "wrath"]`,
+  `dedup_key: f"wrath|{finding.dedup_key}"`.
 
 ---
 
-## 5. Test yozish qoidalari
+## 5. Test writing rules
 
-1. **Fixture real chiqishdan** bo'lsin. Internet/tarmoq kerak bo'lmasin:
-   JSON'ni test ichida saqlang.
-2. **Vaqtga bog'liq test yozmang.** Sertifikat sanasini
-   `datetime.now(UTC) + timedelta(days=...)` bilan hisoblang; `2025-01-01`
-   kabi qattiq sana — time-bomb.
-3. **`pytest.skip` yo'q.** Test muhit talab qilsa, fake/monkeypatch yozing.
-4. **Dict kaliti bilan severity tekshirmang**, agar bir nechta finding bir xil
-   `location`'da bo'lsa: `{f.location: f.severity}` oxirgi finding'ni qoldirib,
-   noto'g'ri natija beradi. `{f.title: f}` yoki ro'yxatdan filtrlang.
-5. **Monkeypatch modul darajasida:** adapter `from ..runner import run_tool`
-   qiladi, shuning uchun `monkeypatch.setattr("sins.adapters.envy.run_tool", ...)`.
-6. **Hermetik:** unit testda haqiqiy tarmoq, haqiqiy tool yoki vaqtinchalik
-   fayl qoldig'i bo'lmasin.
-7. **Har bir finding uchun:** `title.isascii()` va `remediation is not None`.
-8. Qamrov pastga tushmasin (hozir 76%); yangi modulga test yozmasdan
-   qo'shmang.
+1. **Fixtures from real output.** Keep JSON inside the test file; no network
+   / tooling needed.
+2. **Time-dependent tests.** Compute certificate expiry via
+   `datetime.now(UTC) + timedelta(days=...)`. Never hardcode dates like
+   `2025-01-01`.
+3. **No `pytest.skip`.** Use fakes / monkeypatch.
+4. **Severity checks:** use `{f.title: f}` or filter by list — not
+   `{f.location: f.severity}` when several findings share a location.
+5. **Monkeypatch module level:** the adapter does
+   `from ..runner import run_tool`, so patch
+   `monkeypatch.setattr("sins.adapters.<sin>.run_tool", ...)`.
+6. **Hermetic:** no real network, no real tool, no time-sensitive file.
+7. **Per finding:** `title.isascii()` and `remediation is not None`.
+8. **Coverage:** do not drop below current level; add tests for a new module.
 
 ---
 
-## 6. Ma'lum tuzoqlar (audit natijasi)
+## 6. Known errors (audit results) — fixed in this session
 
-Bu ro'yxat oldingi AI qilgan xatolardan tuzilgan. Takrorlamang:
+| # | Error | Cause | Fix |
+|---|---|---|---|
+| 1 | Lust basic auth test found nothing | Header key normalized to lowercase + hyphen (`www-authenticate`) but read with underscore (`www_authenticate`) | Adapter fixed |
+| 2 | Lust cookie tests expected findings on Secure cookies | Test passed cookie with `Secure` while expecting a finding | Tests fixed |
+| 3 | Gluttony fake crashed on OPTIONS-only payloads | Default fallback `responses["GET"]` | Fake fixed |
+| 4 | Wrath confirm test failed | Payload lacked `info.classification.*`; dedup key mismatch | Tests fixed |
+| 5 | Drift score expectation wrong | Score is `56.67` for critical+high+medium | Test fixed |
+| 6 | `risk_grade` returned Uzbek labels | Now returns `CRITICAL/HIGH/MEDIUM/LOW/NONE` | Fixed + tests updated |
+| 7 | `conftest.py` had unterminated triple-quoted string | Broken docstring | Fixed |
 
-| № | Xato | Qanday aniqlanadi |
-|---|---|---|
-| 1 | `envy.py` o'ylab topilgan JSON sxemasini (`server_info`, `certificate.notAfter`) parse qilgan — real sslyze'da 0 finding | Real tool bilan bir marta ishga tushirish |
-| 2 | `sslyze --regular` / `--jsonfile` — mavjud bo'lmagan flag'lar | `sslyze --help` |
-| 3 | `pride.py` naabu'ning `ports` massivini kutgan — real chiqish JSONL | `naabu -json` chiqishini ko'rish |
-| 4 | `httpx` venv'dagi Python CLI'siga tushib qolgan | `uv run python -c "import shutil; print(shutil.which('httpx'))"` |
-| 5 | 13 ta ishlaydigan test `pytest.skip` stub'lariga almashtirilgan | `git diff tests/`, `pytest -rs` |
-| 6 | Qattiq sanali testlar (2025-01-01) — vaqt o'tishi bilan yiqiladi | Sanani `now` ga nisbatan hisoblash |
-| 7 | `{f.location: f.severity}` — bir xil location'da kolliziya | Bir nechta finding bilan test |
-| 8 | `MAX_FINDINGS_PER_SCAN` 5000→1000 sababsiz o'zgartirilgan | `git diff src/sins/services/scan_service.py` |
-| 9 | `pyproject.toml` da `testpaths = ["tests", "src/sins"]` — ma'nosiz | `pytest --collect-only` |
-| 10 | O'zbekcha matn mashina tarjimasi ("Sertifikat vaqdigan") | O'qib tekshirish |
-
-**Qoida:** boshqa AI yozgan kodni "ishlayapti" deb qabul qilmang — real tool
-va test bilan tekshiring.
+**Rule:** do not accept "it works on my machine" — verify via commands listed in
+section 2.
 
 ---
 
-## 7. Hozirgi holat
+## 7. Current state
 
-| Ko'rsatkich | Qiymat |
+| Metric | Value |
 |---|---|
-| Testlar | **252 passed** (2.5 s) |
-| Qamrov | 76% (`--cov=sins`) |
-| Lint | `ruff check` + `ruff format --check` toza (53 fayl) |
-| Migratsiya | `alembic check` toza |
-| Engine'lar | nuclei, osv, pride, envy |
-| Docker | Dockerfile/compose bor, **daemon bu mashinada yo'q — sinalmagan** |
-| Redis | o'rnatilmagan — API `queue: inline` rejimida ishlaydi |
+| Tests | **280 passed** |
+| Coverage | ~76% (`--cov=sins`) |
+| Lint | `ruff check` + `ruff format --check` clean (63 files) |
+| Migrations | head `c3d4e5f6a7b8` — `alembic check` clean |
+| Engines | all 7 enabled by default: `nuclei,osv,pride,envy,lust,gluttony,wrath` |
+| Drift | `finding_states` + regressions + exposure timeline implemented |
+| Docker | image/compose exist, **daemon unavailable on this machine — unverified** |
+| Redis | not installed — API runs `queue: inline` |
 
-**Bajarilgan (qisqa):** authz gate, `FindingContract`, dedup/correlate,
-nuclei/osv/pride/envy adapterlari, orkestrator retry, CLI, PDF hisobot,
-FastAPI (idempotency, pagination, cancel, diff, tenant rotate), ARQ worker,
-Alembic, Docker/compose, CI, kuzatuv (JSON log + Prometheus + rate limit),
-hujjatlar.
+**Completed (recent):** Lust, Gluttony, Wrath adapters + tests; drift module,
+drift service, `FindingState`, `regressions` column, scan wiring, `ScanDiff`
+regressed flag, `ScanContext.prior_findings`, `risk_grade` English.
 
----
-
-## 8. Senga topshirilgan ishlar
-
-Quyidagilar **sizga qoldirilgan**. Tartib — tavsiya etilgan prioritet.
-Har birida "tayyor" mezoni bor.
-
-### P0. Docker oqimini ishga tushirish
-
-- `docker build -t sins .` va `docker compose up -d` ni **haqiqiy daemon**
-  bo'lgan mashinada sinash.
-- Tekshirish: konteyner non-root (uid 10001), `HEALTHCHECK` yashil,
-  `alembic upgrade head` ishga tushadi, `/healthz` 200.
-- Fayllar: `Dockerfile`, `.dockerignore`, `docker-compose.yml`, `Makefile`.
-- Tayyor mezoni: `docker compose up -d && curl localhost:8000/healthz`
-  javob beradi; natijani `docs/RUNBOOK.md` ga yozish.
-
-### P1. Redis + ARQ to'liq oqimi
-
-- `docker compose up -d redis`, `SINS_REDIS_URL` bilan API va worker.
-- Tekshirish: `POST /scans` → worker oladi → `status=completed`;
-  `GET /metrics` da `sins_queue_depth` o'zgaradi.
-- Tayyor mezoni: inline rejimdan tashqari yo'l ham testdan o'tadi
-  (`tests/test_worker.py` qo'shish tavsiya etiladi).
-
-### P2. Egalik darvozasini real domenda sinash
-
-- DNS TXT yoki `/.well-known/sins-verify.txt` orqali tasdiqlash.
-- Hozir faqat mock testlar bor. O'zingizga tegishli domenda bir marta qo'lda
-  o'tkazing.
-- Tayyor mezoni: `docs/RUNBOOK.md` da qadam-baqadam natija + skrinshot matni.
-
-### P3. Lust (auth) engine
-
-- G'oya: `nuclei` auth template'lari + JWT tekshiruvi (`pyjwt` allaqachon
-  rejada). **Brute-force yozmang.**
-- `applies_to`: URL/domain. `category=Category.auth`.
-- Tayyor mezoni: adapter + testlar + README jadvali + `PROGRESS.md`.
-
-### P4. Gluttony (resilience) — ehtiyotkorlik bilan
-
-- Faqat **ruxsat etilgan, past yuklamali** tekshiruv (≤50 RPS), foydalanuvchi
-  ochiq roziligi bilan.
-- DDoS/stress-test logikasi **mutlaqo taqiqlangan** — bu loyihaning huquqiy
-  chegarasi.
-- Agar shubha bo'lsa — avval foydalanuvchidan so'rang.
-
-### P5. Wrath (exploit validation)
-
-- Faqat `nuclei` ning mavjud `-validate`/exploit template'lari orqali,
-  qo'lda payload yozmasdan.
-- "Tasdiqlangan ekspluatatsiya" degani — tool natijasini qayta tekshirish,
-  yangi exploit yozish emas.
-
-### P6. Prometheus/Grafana
-
-- Metrikalar bor (`/metrics`), vizualizatsiya yo'q. Dashboard JSON qo'shing,
-  `docs/RUNBOOK.md` ga ulanish yo'riqnomasi.
-
-### P7. Sayt ↔ API integratsiyasi
-
-- `/Users/asadbek/sins-site` hozir statik marketing. Live demo yoki
-  "API kalit olish" oqimini qo'shish — **avval foydalanuvchidan ruxsat**.
-- Sayt dizayn qoidalari alohida (`sins-site` ichidagi hujjat/commitlarga
-  qarang): qorong'i premium baza, bitta crimson aksent, Geist/Geist Mono,
-  `min-h-[100dvh]`, `py-24+`, kamida WCAG AA.
+**Blocked:** Docker build/compose (no daemon), Redis-backed worker flow,
+real ownership-gate verification.
 
 ---
 
-## 9. Ishni topshirish protokoli
+## 8. Assigned work — priorities
 
-**Boshlashdan oldin:**
+1. **P0.** Docker image / compose run — needs a machine with a Docker daemon.
+2. **P1.** Redis + ARQ full flow — needs Redis.
+3. **P2.** Real-domain ownership gate — needs a domain the owner controls.
+4. **P3.** API ↔ site integration — site is still static marketing.
 
-```bash
-git status --short          # iflos bo'lsa — avval egasiga ayting
-uv run pytest -q
-```
+---
 
-**Tugatishdan oldin (majburiy):**
+## 9. Completion protocol
+
+Before finishing:
 
 ```bash
 uv run pytest -q
@@ -373,7 +321,7 @@ uv run ruff format --check src/ tests/ scripts/
 uv run alembic check
 ```
 
-**Commit formati:**
+**Commit format:**
 
 ```
 feat(pride): add subdomain and port surface engine
@@ -382,50 +330,45 @@ test(envy): cover certificate expiry and HSTS cases
 docs: refresh engine table and handoff guide
 ```
 
-Sarlavha inglizcha, qisqa. Body'da o'zbekcha sabab yozish mumkin. Bitta
-commit — bitta mantiqiy o'zgarish.
+Title in English, short. Body may contain Uzbek reasoning. One commit —
+one logical change.
 
-**`PROGRESS.md` ni yangilash:** sana, test soni, qamrov, bajarilgan ish,
-qolgan ish. Bu — foydalanuvchi talab qilgan **yagona** progress fayli.
+**Update `PROGRESS.md`:** date, test count, coverage, done work, left work.
 
-**Foydalanuvchiga hisobot:** 3–5 punkt. Halol bo'ling: nima tekshirilmagan
-(Docker, Redis, real domen) — alohida yozing. "Ishlaydi" deb yozishdan oldin
-buyruq chiqishini ko'rsating.
-
----
-
-## 10. Tegmaslik kerak bo'lgan narsalar
-
-Quyidagilarni **savolsiz o'zgartirmang**:
-
-- `MAX_FINDINGS_PER_SCAN` (5000) va `MAX_EVIDENCE_BYTES` — DB himoyasi.
-- `dedup.correlate()` semantikasi — hisobotdagi birlashuv shunga bog'liq.
-- Authz darvozasi va API kalit hash logikasi (`security.py`, `authz.py`).
-- `runner.run_tool` — argv/shell=False/killpg/timeout kafolatlari.
-- Migratsiyalar tarixi — faqat yangi revision qo'shiladi.
-- `tests/conftest.py` dagi `_test` bazasi qoidasi.
-- Boshqa AI yozgan ishlaydigan testlarni "soddalashtirish".
-
-**Ruxsat so'rash kerak:** yangi Python dependency, yangi tashqi servis,
-ma'lumotlar modelini o'zgartirish, API'ning breaking o'zgarishi, sayt
-dizaynini qayta qurish.
+**Report to the user:** 3–5 points. Be honest: what was not verified (Docker,
+Redis, real domain) — write it separately. Before writing "done", show the
+command output.
 
 ---
 
-## 11. Foydali faktlar
+## 10. Do not touch without asking
 
-- Tool'lar: `/Users/asadbek/go/bin/{subfinder,naabu,httpx,nuclei}`,
-  `sslyze` — venv ichida (`.venv/bin/sslyze`, `uv add sslyze` bilan qo'shilgan).
-- Muhit o'zgaruvchilari: `SINS_DATABASE_URL`, `SINS_REDIS_URL`,
-  `SINS_ALLOWED_ENGINES`, `SINS_MAX_RPS`, `SINS_TOOL_TIMEOUT_SECONDS`,
-  `SINS_SUBFINDER_BIN`, `SINS_NAABU_BIN`, `SINS_HTTPX_BIN`.
-- macOS: `sed -i ''`; `setsid` yo'q; portni bo'shatish:
+- `MAX_FINDINGS_PER_SCAN` (5000) and `MAX_EVIDENCE_BYTES` — DB protection.
+- `dedup.correlate()` semantics — tied to report correlation.
+- Authz gate and API key hash logic (`security.py`, `authz.py`).
+- `runner.run_tool` — argv / shell=False / killpg / timeout guards.
+- Migration history — only add new revisions.
+- `tests/conftest.py` `_test` DB rule.
+
+**Asking is required:** new Python dependency, new external service,
+data-model change, breaking API change, redesign of site design.
+
+---
+
+## 11. Useful facts
+
+- Tools: `/Users/asadbek/go/bin/{subfinder,naabu,httpx,nuclei}`,
+  `sslyze` inside venv (`.venv/bin/sslyze`, added via `uv add sslyze`).
+- Env vars: `SINS_DATABASE_URL`, `SINS_REDIS_URL`, `SINS_ALLOWED_ENGINES`,
+  `SINS_MAX_RPS`, `SINS_TOOL_TIMEOUT_SECONDS`, `SINS_SUBFINDER_BIN`,
+  `SINS_NAABU_BIN`, `SINS_HTTPX_BIN`.
+- macOS: `sed -i ''`; no `setsid`; free a port:
   `lsof -ti :8000 | xargs -r kill`.
-- `expire_on_commit=False` → `session.expire_all()` dan keyin `obj.id` ga
-  tegish `MissingGreenlet` beradi: ID'ni avval oling.
-- `prune_scans` global (tenant bo'yicha emas) — prune testlarida avval
-  `_purge_leftovers` chaqiriladi.
-- Adapterlarni qo'lda sinash uchun lokal nishonlar:
+- `expire_on_commit=False` → after `session.expire_all()` reading `obj.id` raises
+  `MissingGreenlet` — take the ID first.
+- `prune_scans` is global (not per-tenant) — call `_purge_leftovers` first in
+  prune tests.
+- Local probes for adapter-level testing:
   `python3 -m http.server 8080 --bind 127.0.0.1` (Pride),
   `/tmp/envy-lab/serve.py` + `cert.pem` (Envy, TLS 8443).
-- Hech qachon o'zingizga tegishli bo'lmagan domenga skan yubormang.
+- Never scan a domain you do not own.

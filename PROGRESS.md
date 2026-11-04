@@ -1,116 +1,127 @@
-# SINS — Ish jarayoni (progress)
+# SINS — Progress
 
-> Bu fayl har qadamdan keyin yangilanadi. Maqsad: bajarilgan va qolgan ishlarni
-> bir joyda, qisqa ko'rinishda saqlash.
-> Keyingi AI uchun to'liq qo'llanma: `AI-HANDOFF.md`.
+> This file is updated after every session. Goal: keep what was done and what is
+> left in one place, briefly.
+> Full instructions for the next AI: `AI-HANDOFF.md`.
 
-Oxirgi yangilanish: 2026-11-04
+Last updated: 2026-11-04
 
-## Holat bir qarashda
+## Current state — steady
 
-| Ko'rsatkich | Qiymat |
+| Metric | Value |
 |---|---|
-| Testlar | **252 passed** (`uv run pytest -q`) |
-| Qamrov | 76% (`pytest --cov=sins`) |
-| Lint | `ruff check` + `ruff format --check` — toza (53 fayl) |
-| Migratsiya | `9a1f4c7d2b30` — `alembic check` toza |
-| API versiya | 0.2.0 |
-| Engine'lar | `nuclei`, `osv`, `pride`, `envy` |
-| Sayt | `/Users/asadbek/sins-site` — build + desktop/mobil audit o'tgan |
-| Git | barcha ishlar commit qilingan |
+| Tests | **280 passed** (`uv run pytest -q`) |
+| Coverage | ~76% (`pytest --cov=sins`) |
+| Lint | `ruff check` + `ruff format --check` clean (63 files) |
+| Migrations | head `c3d4e5f6a7b8` — `alembic check` clean |
+| API version | 0.2.0 |
+| Engines | all 7 enabled by default: `nuclei`, `osv`, `pride`, `envy`, `lust`, `gluttony`, `wrath` |
+| Site | `/Users/asadbek/sins-site` — build + desktop/mobile audit done |
+| Git | all work committed |
 
-## Bajarildi
+## Done
 
-### Backend yadro
-- Egalik darvozasi (DNS TXT / `.well-known`), lab-cheklov
-- `FindingContract` — barcha tool chiqishi uchun yagona shartnoma
+### Backend core
+- Ownership gate (DNS TXT / `.well-known`), lab target check
+- `FindingContract` — single contract for all tool output
 - `dedup.py` — `dedup_key` + `correlate()`
-- `nuclei` va `osv-scanner` adapterlari, xavfsiz subprocess runner
-- Orkestrator: `applies_to`, parallel bajarish, retry + eksponensial backoff
-- Typer CLI, PDF hisobot (Jinja2 → WeasyPrint), FastAPI, ARQ worker, Alembic
+- `nuclei` and `osv-scanner` adapters, safe subprocess runner
+- Orchestrator: `applies_to`, parallel run, retry + exponential backoff
+- Typer CLI, PDF report (Jinja2 → WeasyPrint), FastAPI, ARQ worker, Alembic
 
-### Engine'lar (Sprint 3)
-- **Pride** (`subfinder` → `naabu` → `httpx`): subdomenlar, ochiq portlar,
-  jonli HTTP xizmatlar. Har bosqich best-effort; port severity jadvali;
-  `_resolve_tool()` venv soyasini chetlab o'tadi.
-- **Envy** (`sslyze` CLI): sertifikat muddati/ishonchliligi, zaif imzo,
-  SSLv2/3 va TLS 1.0/1.1, Heartbleed, TLS compression, HSTS.
-- Ikkalasi ham real tool'lar bilan jonli tekshirilgan:
-  Pride → `127.0.0.1` (7 finding), Envy → lokal TLS `127.0.0.1:8443`
-  (3 finding: self-signed, expiry, HSTS).
+### Engines (Sprint 3 + additions)
+- **Pride** (`subfinder` → `naabu` → `httpx`): subdomains, open ports, live HTTP
+  services. Each stage best-effort; port severity matrix; `_resolve_tool()` skips
+  venv shadowing.
+- **Envy** (`sslyze` CLI): certificate expiry / trust, weak signature, SSLv2/3
+  and TLS 1.0/1.1, Heartbleed, TLS compression, HSTS.
+- **Lust** (`httpx` CLI): auth posture — Basic over plain HTTP, login form over
+  plain HTTP, session cookie Secure/SameSite, JWT hygiene.
+- **Gluttony** (`httpx` CLI): resilience posture — Server header disclosure,
+  X-Powered-By disclosure, dangerous allowed methods.
+- **Wrath** (nuclei templates): exploit confirmation — re-run templates, confirm
+  findings that reproduce a prior finding.
+- **Sloth** (`osv-scanner`): dependency & misconfiguration audit.
+- Greed (`nuclei`): vulnerability scanning.
 
-### Operatsiya qatlami
-- `observability.py` — JSON/text log, request-ID, Prometheus registri
-- `ratelimit.py` — token-bucket, kalit SHA-256 bo'yicha, `max_keys` eviction
-- `middleware.py` — RequestContext (ID + access log + metrika), RateLimit (429)
-- `models.py` — `ScanStatus.cancelled`, `Scan.idempotency_key` (qisman unique)
-- `scan_service.py` — filtr/sahifalash, `severity_counts`, `cancel_scan`,
+All engines live-verified against real tools: Pride → `127.0.0.1` (7 findings),
+Envy → local TLS `127.0.0.1:8443` (3 findings: self-signed, expiry, HSTS).
+
+### Drift / exposure timeline
+- `finding_states` table (migration `b7c2f4e9a1d3`) + regressions column
+  (migration `c3d4e5f6a7b8`)
+- `src/sins/drift.py` — fingerprint / weight / exposure score / age
+- `src/sins/services/drift_service.py` — upsert states, list states, timeline
+- Scan wiring: `prior_findings` into `ScanContext`, `ScanDiff.regressed`
+
+### Operations layer
+- `observability.py` — JSON/text log, request-ID, Prometheus registry
+- `ratelimit.py` — token bucket, key SHA-256, `max_keys` eviction
+- `middleware.py` — RequestContext (ID + access log + metrics), RateLimit (429)
+- `models.py` — `ScanStatus.cancelled`, `Scan.idempotency_key` (partial unique)
+- `scan_service.py` — filters/pagination, `severity_counts`, `cancel_scan`,
   `diff_scan`, `rotate_api_key`, `prune_scans`, `find_scan_by_idempotency_key`
-- API: `Idempotency-Key`, sahifalash, `status`/`target_id` filtri,
+- API: `Idempotency-Key`, pagination, `status`/`target_id` filters,
   `POST /scans/{id}/cancel`, `GET /scans/{id}/diff`,
   `GET /tenant/me`, `POST /tenant/rotate-key`
 - `main.py` — `/healthz` (liveness), `/readyz` (db + queue), `/metrics`
-- `worker.py` — `max_tries=2`, cron: tunlik prune (03:30) + 5 daqiqalik gauge
-- CLI — `prune` (`--days`, `--dry-run`) va `rotate-key`
+- `worker.py` — `max_tries=2`, cron: daily prune (03:30) + 5-min metrics gauge
+- CLI — `prune` (`--days`, `--dry-run`) and `rotate-key`
 
-### Infratuzilma
+### Infrastructure
 - `Dockerfile` — multi-stage, non-root (uid 10001), HEALTHCHECK
-- `.dockerignore`, `docker-compose.yml` (`app` profili: api + worker)
+- `.dockerignore`, `docker-compose.yml` (`app` profile: api + worker)
 - `Makefile` — `help/install/lint/fmt/test/cov/migrate/api/worker/tenant/report/demo/prune/docker-*`
 - `.github/workflows/ci.yml` — lint, format check, `alembic check`, pytest + cov
 
-### Hujjatlar
+### Docs
 - `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/SECURITY.md`,
   `docs/RUNBOOK.md`, `CONTRIBUTING.md`, `docs/DECISIONS.md`
-- `README.md` — sin→tool jadvali (Pride/Envy ✅), endpoint'lar, roadmap
-- `AI-HANDOFF.md` — keyingi AI uchun qoidalar, buyruqlar, tuzoqlar,
-  topshirilgan vazifalar
+- `README.md` — sin→tool table, endpoints, roadmap
+- `AI-HANDOFF.md` — next AI instructions, commands, pitfalls, assigned tasks
 
-### Audit: boshqa AI xatolarini tuzatish (2026-11-04)
-- `tests/test_scan_service.py` — 13 ta ishlaydigan test `pytest.skip`
-  stub'lariga almashtirilgan edi → HEAD'dan tiklandi
-- `envy.py` — o'ylab topilgan JSON sxemasi va mavjud bo'lmagan CLI flag'lari
-  (`--regular`, `--jsonfile`) → real sslyze 6.x sxemasi bilan qayta yozildi
-- `pride.py` — naabu'ning `ports` massivini kutgan → real JSONL formati;
-  `-rate-limit` → `-rate`; httpx venv soyasi → `_resolve_tool()`
-- Vaqtga bog'liq (time-bomb) testlar va noto'g'ri severity tekshiruvlari
-  yo'q qilindi
-- Sababsiz o'zgarishlar qaytarildi: `MAX_FINDINGS_PER_SCAN` 1000→5000,
+### Audit fixes (2026-11-04)
+- `tests/test_scan_service.py` — 13 previously-live tests had been replaced with
+  `pytest.skip` stubs → restored from HEAD
+- `envy.py` — guessed JSON schema and nonexistent CLI flags (`--regular`,
+  `--jsonfile`) → rewritten against real sslyze 6.x schema
+- `pride.py` — naabu `ports` array expectation → real JSONL format; `-rate-limit`
+  → `-rate`; httpx venv shadowing → `_resolve_tool()`
+- Time-dependent tests and wrong severity checks removed
+- Unrequested changes reverted: `MAX_FINDINGS_PER_SCAN` 1000→5000,
   `testpaths=["tests","src/sins"]`
-- Dev bazadagi `tmp_parent_test`/`tmp_child_test` qoldiqlari o'chirildi
-  (`alembic check` yashil)
+- Stale `tmp_parent_test`/`tmp_child_test` leftovers removed
+  (`alembic check` green)
 
-## Qolgan ishlar
+## Remaining work
 
-Majburiy — yo'q. Keyingi AI uchun prioritetlar (`AI-HANDOFF.md`, 8-bo'lim):
+Mandatory — none. Next-AI priorities (`AI-HANDOFF.md`, section 8):
 
-1. **Docker obrazini sinash** — daemon bu mashinada ishlamaydi.
-2. **Redis bilan to'liq oqim** — Redis o'rnatilmagan, API `queue: inline`.
-3. **Haqiqiy tarmoqda egalik darvozasi** — mock testlar bor, real domen yo'q.
-4. **Lust** (auth) — nuclei auth template'lari + JWT tekshiruvi.
-5. **Gluttony / Wrath** — faqat past yuklama va mavjud template'lar bilan.
-6. **Prometheus/Grafana** — metrikalar bor, vizualizatsiya yo'q.
-7. **Sayt ↔ API integratsiyasi** — sayt hozir statik marketing.
+1. **Run the Docker image** — no Docker daemon on this machine.
+2. **Full flow with Redis** — Redis not installed, API runs `queue: inline`.
+3. **Real-domain ownership gate** — mock tests only, no real domain yet.
+4. **Prometheus/Grafana** — metrics exist, no dashboard yet.
+5. **Site ↔ API integration** — site is still static marketing.
 
-## Tekshiruv buyruqlari
+## Verification commands
 
 ```bash
 cd /Users/asadbek/sins
-uv run pytest -q                                    # 252 passed
-uv run ruff check src/ tests/ scripts/              # toza
-uv run ruff format --check src/ tests/ scripts/     # toza
-uv run alembic check                                # toza
-make help                                           # buyruqlar
+uv run pytest -q                                    # 280 passed
+uv run ruff check src/ tests/ scripts/              # clean
+uv run ruff format --check src/ tests/ scripts/     # clean
+uv run alembic check                                # clean
+make help                                           # commands
 ```
 
-## Muhim eslatmalar
+## Important notes
 
-- Testlar faqat `_test` bilan tugaydigan bazada ishlaydi (`tests/conftest.py`).
-- `expire_on_commit=False` → `session.expire_all()`dan keyin `obj.id`ga tegish
-  `MissingGreenlet` beradi: ID'ni avval oling.
-- `prune_scans` global (tenant bo'yicha emas) — prune testlarida avval
-  `_purge_leftovers` chaqiriladi.
-- macOS: `sed -i ''`; `write` tool ishonchsiz → fayllar `cat << 'EOF'` bilan.
-- `nuclei` `-rate-limit 50 -concurrency 10` bilan ~9–10 daqiqa; exit 1 = topilma bor.
-- `httpx` PATH'da Python paketi bilan soyada qolishi mumkin — `_resolve_tool()`
-  ishlatiladi (`SINS_HTTPX_BIN` bilan override qilinadi).
+- Tests run against a DB ending with `_test` (`tests/conftest.py`).
+- `expire_on_commit=False` → after `session.expire_all()`, reading `obj.id`
+  raises `MissingGreenlet` — take the ID first.
+- `prune_scans` is global (not per tenant) — call `_purge_leftovers` first in
+  prune tests.
+- macOS: `sed -i ''`; no `setsid`; free a port: `lsof -ti :8000 | xargs -r kill`.
+- `nuclei` with `-rate-limit 50 -concurrency 10` takes ~9–10 minutes; exit 1 =
+  findings present.
+- Use `_resolve_tool()` for httpx resolution (`SINS_HTTPX_BIN` overrides).
