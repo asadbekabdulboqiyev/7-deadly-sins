@@ -1,8 +1,14 @@
 [project]
 name = "sins"
 version = "0.2.0"
-description = "Attack surface & vulnerability assessment platform (internal codename: 7sins)"
+description = "7 Deadly Sins — continuous exposure assessment platform"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.13"
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",

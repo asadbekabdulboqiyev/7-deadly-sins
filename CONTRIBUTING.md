@@ -1,6 +1,6 @@
-# Hissa qo'shish
+# Contributing
 
-## Muhit
+## Environment
 
 ```bash
 uv sync --python 3.13
@@ -8,20 +8,20 @@ docker compose up -d
 uv run alembic upgrade head
 ```
 
-macOS: PDF uchun `brew install pango gtk+3`. `nuclei` va `osv-scanner`
-bo'lmasa ham testlar ishlaydi (adapterlar mock qilinadi).
+macOS: `brew install pango gtk+3` is required for PDF output. The tests run
+without `nuclei` and `osv-scanner` installed (the adapters are mocked).
 
-## Kundalik buyruqlar
+## Day-to-day commands
 
 ```bash
 make test        # pytest
 make lint        # ruff check
 make fmt         # ruff format + fix
-make cov         # qamrov
-make migration m="izoh"   # autogenerate
+make cov         # coverage
+make migration m="message"   # autogenerate
 ```
 
-Commit oldidan **uchalasi** yashil bo'lishi shart:
+All three checks must be green before a commit:
 
 ```bash
 uv run ruff check src/ tests/ scripts/
@@ -30,44 +30,45 @@ uv run pytest -q
 uv run alembic check
 ```
 
-## Qoidalar
+## Rules
 
-1. **Biznes-qoida faqat `services/scan_service.py`da.** Route, CLI va worker
-   faqat shu funksiyalarni chaqiradi.
-2. **Har yangi endpoint uchun test** — kamida bitta baxtli yo'l va bitta xato.
-3. **Tenant izolyatsiyasi** — har so'rovda `tenant_id` filtri. Testda begona
-   tenant bilan urinib ko'ring (`test_tenant_cannot_see_foreign_scan`).
-4. **Yangi adapter** — `adapters/base.py` protokolini bajaring:
-   `name`, `sin`, `category`, `available()`, `applies_to()`, `run()`.
-   `REGISTRY`ga qo'shing va `applies_to` uchun test yozing.
-5. **Xavfsizlik** — `shell=True` yo'q, foydalanuvchi kiritmasi argv'ga
-   birlashtirilmaydi, kalit logga yozilmaydi.
-6. **Migratsiya** — model o'zgarsa `make migration` va `alembic check` toza
-   bo'lishi shart. Migratsiya izohi o'zbekcha, aniq.
-7. **Matn tili** — kod izohlari va hujjatlar o'zbekcha, API/UI matnlari inglizcha
-   (mahsulot shartnomasi).
+1. **Business rules live only in `services/scan_service.py`.** Routes, the CLI
+   and the worker just call those functions.
+2. **A test for every new endpoint** - at least one happy path and one failure.
+3. **Tenant isolation** - a `tenant_id` filter on every request. Try to break it
+   in a test with a foreign tenant (`test_tenant_cannot_see_foreign_scan`).
+4. **New adapter** - implement the protocol in `adapters/base.py`: `name`,
+   `sin`, `category`, `available()`, `applies_to()`, `run()`. Add it to
+   `REGISTRY` and write a test for its `applies_to`.
+5. **Security** - no `shell=True`, user input is never concatenated into argv,
+   keys are never logged.
+6. **Migrations** - if a model changes, `make migration` and a clean
+   `alembic check` are mandatory. The migration message must be short and
+   precise.
+7. **Language** - code comments, docs, API strings and UI strings are all
+   English (product contract).
 
-## Testlar tuzilishi
+## Test layout
 
-| Fayl | Nima |
+| File | What it covers |
 |---|---|
-| `test_api.py` | HTTP oqimi, auth, egalik, PDF |
-| `test_scan_service.py` | Hayotiy sikl, tenant izolyatsiyasi |
-| `test_service_extras.py` | Idempotentlik, cancel, diff, rotate, prune, sahifalash |
-| `test_observability.py` | Log formatlari, metrikalar |
-| `test_ratelimit.py` | Token-bucket chegaralari |
+| `test_api.py` | HTTP flow, auth, ownership, PDF |
+| `test_scan_service.py` | Lifecycle, tenant isolation |
+| `test_service_extras.py` | Idempotency, cancel, diff, rotate, prune, pagination |
+| `test_observability.py` | Log formats, metrics |
+| `test_ratelimit.py` | Token-bucket boundaries |
 | `test_middleware.py` | Request ID, rate limit, `/metrics` |
-| `test_orchestrator.py` | Adapterlar, `applies_to`, retry |
-| `test_security.py` | Kalit hash, token |
-| `test_targets.py` | Nishon klassifikatsiyasi, lab cheklovi |
-| `test_report.py` | PDF tarkibi |
+| `test_orchestrator.py` | Adapters, `applies_to`, retry |
+| `test_security.py` | Key hashing, tokens |
+| `test_targets.py` | Target classification, lab restriction |
+| `test_report.py` | PDF contents |
 
-Testlar **faqat** `_test` bilan tugaydigan bazada ishlaydi. Boshqa nom —
-`RuntimeError` (prod bazani himoya qiladi).
+The tests run **only** against a database whose name ends in `_test`. Any other
+name raises `RuntimeError`, which protects the production database.
 
 ## PR
 
-- Kichik, mantiqiy commit'lar (`feat:`, `fix:`, `docs:`, `test:`).
-- Tavsifda: nima o'zgardi, nega, qanday tekshirildi.
-- Xatti-harakat o'zgarishi bo'lsa — `docs/` yangilanadi.
-- `PROGRESS.md` — bajarilgan/qolgan ishlar qisqa yangilanadi.
+- Small, logical commits (`feat:`, `fix:`, `docs:`, `test:`).
+- In the description: what changed, why, and how it was verified.
+- A behavior change means `docs/` gets updated.
+- Keep the done/remaining list in `PROGRESS.md` current.

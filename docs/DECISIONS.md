@@ -1,63 +1,77 @@
-# SINS — qarorlar hujjati (ADR)
+# 7 Deadly Sins - decision record (ADR)
 
-Barcha arxitekturiy qarorlar shu yerda qayd etiladi.
+Every architectural decision is recorded here.
 
-## ADR-1: 7 sin → 4 tayyor tool (Greed, Sloth, Pride, Envy)
+## ADR-1: 7 sins to 4 existing tools (Greed, Sloth, Pride, Envy)
 
-**Holat:** qabul qilindi.
+**Status:** accepted.
 
-Nechta o'z skaner yozish (6 oy) o'rniga, tayyor open-source skanerlarni orkestrlaymiz:
-- nuclei (Greed — CVE), osv-scanner (Sloth — dependency), subfinder+naabu+httpx (Pride — attack surface), sslyze (Envy — SSL/TLS).
+Instead of writing our own scanners (6 months of work), we orchestrate
+existing open-source scanners:
+- nuclei (Greed - CVEs), osv-scanner (Sloth - dependencies), subfinder+naabu+httpx (Pride - attack surface), sslyze (Envy - SSL/TLS).
 
-**Sabab:** Ishlash tezligi, 10 000+ nuclei template, `FindingContract` shartnomasi orqali birlash.
+**Rationale:** delivery speed, 10,000+ nuclei templates, and a single merged
+output through the `FindingContract`.
 
-**Cheklov:** Hydra brute-force, DDoS, qo'lda exploit payload v1 dan chiqarilgan (huquqiy javobgarlik).
+**Constraint:** Hydra brute force, DDoS and hand-written exploit payloads are
+dropped from v1 (legal liability).
 
-## ADR-2: PostgreSQL (MongoDB o'rniga)
+## ADR-2: PostgreSQL (instead of MongoDB)
 
-**Holat:** qabul qilindi.
+**Status:** accepted.
 
-State, findings, JSONB evidence uchun PostgreSQL. SQLAlchemy + Alembic sxema boshqaruvi.
+PostgreSQL for state, findings and JSONB evidence. SQLAlchemy plus Alembic for
+schema management.
 
-## ADR-3: `applies_to` adapter filtering (osv hangini oldini olish)
+## ADR-3: `applies_to` adapter filtering (prevents the osv hang)
 
-**Holat:** qabul qilindi.
+**Status:** accepted.
 
-Har bir adapter `applies_to(target) -> bool` beradi. Mos kelmagan engine ishga tushirilmaydi va `EngineReport(skipped=True, skip_reason=...)` orqali progress callbackga yuboriladi (progress 100% ga yetadi). PDF da skipped engine "—" / "o'tkazib yuborildi" ko'rinadi.
+Every adapter exposes `applies_to(target) -> bool`. A non-matching engine is
+never started and is reported through `EngineReport(skipped=True,
+skip_reason=...)` to the progress callback (progress still reaches 100%). In the
+PDF a skipped engine shows as `-` / `skipped`.
 
-| Nishon | nuclei | osv |
+| Target | nuclei | osv |
 |---|---|---|
-| domain/url/ip | ✅ | — |
-| lokal papka | — | ✅ |
+| domain/url/ip | ✅ | - |
+| local directory | - | ✅ |
 
-**Sabab:** `osv-scanner` URL'ga qarshi ishga tushirilganda osilib qoladi (real hodisa).
+**Rationale:** `osv-scanner` hangs when it runs against a URL (real incident).
 
-## ADR-4: Alembic sxema manba (`init-db` faqat dev)
+## ADR-4: Alembic is the schema source (`init-db` is dev only)
 
-**Holat:** qabul qilindi.
+**Status:** accepted.
 
-`alembic.ini` da URL yo'q (`SINS_DATABASE_URL` dan `migrations/env.py` oladi). `prepend_sys_path = %(here)s/src`. `alembic upgrade head` — sxema manba. `init-db` — faqat lokal dev (`--drop` bilan).
+`alembic.ini` holds no URL (it is read from `SINS_DATABASE_URL` by
+`migrations/env.py`). `prepend_sys_path = %(here)s/src`. `alembic upgrade head`
+is the source of truth for the schema. `init-db` exists for local development
+only (with `--drop`).
 
-**Tekshiruv:** `uv run alembic check` — "No new upgrade operations detected" bo'lishi kerak (model ↔ migration drift yo'q).
+**Verification:** `uv run alembic check` must print "No new upgrade operations
+detected" (no model vs migration drift).
 
-## ADR-5: API kalit xavfsizligi (SHA-256 hash, bir marta ko'rsatiladi)
+## ADR-5: API key security (SHA-256 hash, shown once)
 
-**Holat:** qabul qilindi.
+**Status:** accepted.
 
-`Tenant.api_key_hash` — SHA-256 hash. `api_key_prefix` — ko'rsatish uchun. Raw key `sins create-tenant` da faqat bir marta chiqariladi. Frontend'ga API key tushmaydi.
+`Tenant.api_key_hash` holds the SHA-256 hash. `api_key_prefix` exists for
+display. The raw key is emitted by `sins create-tenant` exactly once. The API
+key never reaches the frontend.
 
-## ADR-6: Queue (ARQ → inline fallback)
+## ADR-6: Queue (ARQ with inline fallback)
 
-**Holat:** qabul qilindi.
+**Status:** accepted.
 
-ARQ worker (max_jobs=2). Redis yo'q bo'lda API `asyncio.create_task` orqali inline bajaradi. `GET /healthz` → `queue: ok|inline`.
+ARQ worker (`max_jobs=2`). Without Redis the API runs the job inline through
+`asyncio.create_task`. `GET /healthz` reports `queue: ok|inline`.
 
-## Yo'l xaritasi
+## Roadmap
 
-| Bosqich | Holat |
+| Phase | Status |
 |---|---|
-| 0 — poydevor | ✅ |
-| 1 — DB + API | ✅ |
-| 2 — 2-modul + PDF | ✅ |
-| 3 — dashboard | ⏳ |
-| 4 — pilot | ⏳ |
+| 0 - foundation | ✅ |
+| 1 - DB + API | ✅ |
+| 2 - 2nd module + PDF | ✅ |
+| 3 - dashboard | ⏳ |
+| 4 - pilot | ⏳ |

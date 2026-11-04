@@ -1,41 +1,41 @@
 # HTTP API
 
-Base URL: `http://127.0.0.1:8000` · Interaktiv hujjat: `/docs` (OpenAPI: `/openapi.json`)
+Base URL: `http://127.0.0.1:8000` | Interactive docs: `/docs` (OpenAPI: `/openapi.json`)
 
-## Autentifikatsiya
+## Authentication
 
-Har bir biznes so'rovida:
+Every business request carries:
 
 ```
 X-API-Key: sins_...
 ```
 
-Kalit bazada faqat SHA-256 hash sifatida saqlanadi. Xato javobi bitta xil
-(401) — kalit mavjudligi oshkor qilinmaydi.
+The key is stored in the database as a SHA-256 hash only. A rejected request
+always looks the same (401) - whether the key exists is never disclosed.
 
-## Umumiy sarlavhalar
+## Common headers
 
-| Sarlavha | Yo'nalish | Ma'no |
+| Header | Direction | Meaning |
 |---|---|---|
-| `X-API-Key` | so'rov | Tenant identifikatsiyasi |
-| `X-Request-ID` | ikkalasi | Mijoz yuborsa — saqlanadi, aks holda generatsiya qilinadi |
-| `Idempotency-Key` | so'rov | `POST /scans` takrorlanishini bloklaydi |
-| `Retry-After` | javob | 429 da qancha kutish (sekund) |
+| `X-API-Key` | request | Tenant identity |
+| `X-Request-ID` | both | Reused when the client sends one, generated otherwise |
+| `Idempotency-Key` | request | Blocks duplicate `POST /scans` |
+| `Retry-After` | response | Seconds to wait on 429 |
 
-## Xatolar
+## Errors
 
-|xolat|holat|ma'no|
+|Status|Error|Meaning|
 |---|---|---|
-|400|`ServiceError`, `OwnershipError`|noto'g'ri so'rov / biznes qoidasi|
-|401|—|kalit yo'q yoki noto'g'ri|
-|404|`NotFound`|resurs topilmadi (yoki boshqa tenantga tegishli)|
-|409|`TargetNotVerified`, `ScanBusy`, `NotCancellable`, `InvalidScanState`|holat to'qnashuvi|
-|422|`InvalidTarget`|nishon formati noto'g'ri|
-|429|—|rate limit|
+|400|`ServiceError`, `OwnershipError`|bad request / business rule|
+|401|-|missing or wrong key|
+|404|`NotFound`|resource does not exist (or belongs to another tenant)|
+|409|`TargetNotVerified`, `ScanBusy`, `NotCancellable`, `InvalidScanState`|state conflict|
+|422|`InvalidTarget`|malformed target|
+|429|-|rate limited|
 
-Barcha xato javoblari: `{"detail": "..."}`.
+Every error response is `{"detail": "..."}`.
 
-## Nishonlar
+## Targets
 
 ### `POST /targets` → 201
 
@@ -43,7 +43,7 @@ Barcha xato javoblari: `{"detail": "..."}`.
 {"value": "example.com"}
 ```
 
-Javob:
+Response:
 
 ```json
 {
@@ -58,17 +58,17 @@ Javob:
 }
 ```
 
-Lab nishonlari (`localhost`, private IP) avtomatik tasdiqlanadi
+Lab targets (`localhost`, private IPs) are verified automatically
 (`verify_method="lab"`, `instructions=null`).
 
 ### `GET /targets?limit=200&offset=0` → 200
 
 ### `POST /targets/{id}/verify` → 200
 
-DNS TXT yoki `.well-known` faylini tekshiradi. Token muddati o'tsa — 409 va
-javobda yangi `verify_token` qaytadi.
+Checks the DNS TXT record or the `.well-known` file. If the token has expired
+it returns 409 and a fresh `verify_token` in the body.
 
-## Skanlar
+## Scans
 
 ### `POST /scans` → 202
 
@@ -80,19 +80,19 @@ Content-Type: application/json
 {"target_id": "…", "engines": ["nuclei"], "severities": ["critical","high"]}
 ```
 
-- `engines` bo'sh bo'lsa — barcha ruxsat etilganlar (`SINS_ALLOWED_ENGINES`).
-  Sukut: `nuclei,osv,pride,envy`.
-- `severities` bo'sh bo'lsa — `critical, high, medium, low` (`info` yo'q).
-- Egalik tasdiqlanmagan → 409.
-- Shu nishonda faol skan bor → 409.
-- `Idempotency-Key` takrorlansa → o'sha skan qaytadi (yangi job yo'q).
+- An empty `engines` means every allowed engine (`SINS_ALLOWED_ENGINES`).
+  Default: `nuclei,osv,pride,envy`.
+- An empty `severities` means `critical, high, medium, low` (no `info`).
+- Ownership not verified → 409.
+- An active scan on the same target → 409.
+- A repeated `Idempotency-Key` → the same scan is returned (no new job).
 
 ### `GET /scans?limit=50&offset=0&status=done&target_id=…` → 200
 
-Har bir element `ScanOut` + `finding_count` (bitta guruhlangan so'rov bilan).
+Each item is a `ScanOut` plus `finding_count` (from a single grouped query).
 
-`limit` 1–500. `status` takrorlanishi mumkin (`?status=done&status=failed`) yoki
-vergul bilan (`?status=done,failed`).
+`limit` is 1–500. `status` may repeat (`?status=done&status=failed`) or be
+comma-separated (`?status=done,failed`).
 
 ### `GET /scans/{id}` → 200
 
@@ -108,7 +108,7 @@ vergul bilan (`?status=done,failed`).
 
 ### `GET /scans/{id}/findings` → 200
 
-Query: `severity` (takrorlanadi), `engine`, `limit` (1–500, sukut 100), `offset`.
+Query: `severity` (repeatable), `engine`, `limit` (1–500, default 100), `offset`.
 
 ```json
 {
@@ -129,12 +129,12 @@ Query: `severity` (takrorlanadi), `engine`, `limit` (1–500, sukut 100), `offse
 
 ### `POST /scans/{id}/cancel` → 200
 
-`pending` yoki `running` skanni bekor qiladi → `status: "cancelled"`.
-Tugagan skan uchun → 409 (`NotCancellable`).
+Cancels a `pending` or `running` scan → `status: "cancelled"`.
+For a finished scan → 409 (`NotCancellable`).
 
 ### `GET /scans/{id}/diff?against={scan_id}` → 200
 
-`against` berilmasa — shu nishondagi oldingi tugagan skan olinadi.
+When `against` is omitted, the previous finished scan on the same target is used.
 
 ```json
 {
@@ -145,11 +145,11 @@ Tugagan skan uchun → 409 (`NotCancellable`).
 }
 ```
 
-`baseline: false` — oldingi skan yo'q, hammasi `new`.
+`baseline: false` means there is no previous scan, so everything is `new`.
 
 ### `GET /scans/{id}/report.pdf` → 200 `application/pdf`
 
-Faqat `done` skan uchun; aks holda 409.
+Only for a `done` scan; anything else → 409.
 
 ## Tenant
 
@@ -165,26 +165,25 @@ Faqat `done` skan uchun; aks holda 409.
 {
   "api_key": "sins_…",
   "api_key_prefix": "sins_AbCd",
-  "warning": "Eski kalit shu zahoti ishlamaydi. Yangi kalitni xavfsiz saqlang."
+  "warning": "The old key stops working immediately. Store the new key securely."
 }
 ```
 
-Yangi kalit faqat bir marta ko'rinadi. Eski kalit darhol 401 beradi.
+The new key is visible exactly once. The old key returns 401 from that moment.
 
-## Tizim
+## System
 
-| Endpoint | Ma'no |
+| Endpoint | Meaning |
 |---|---|
-| `GET /healthz` | `{"status":"ok"}` — liveness, DB tekshirilmaydi |
-| `GET /readyz` | `{"ready":true,"db":"ok","queue":"ok"}` — tayyorlik (503 bo'lishi mumkin) |
+| `GET /healthz` | `{"status":"ok"}` - liveness, does not touch the DB |
+| `GET /readyz` | `{"ready":true,"db":"ok","queue":"ok"}` - readiness (may return 503) |
 | `GET /metrics` | Prometheus text format |
 
-`queue` qiymati: `ok` (ARQ ulangan) yoki `inline` (Redis yo'q, dev rejimi).
+`queue` is `ok` (ARQ connected) or `inline` (no Redis, dev mode).
 
 ## Rate limit
 
-Sukut: **600 so'rov/daqiqa** kalit (yoki IP) bo'yicha, token-bucket.
-Chegaradan oshsa:
+Default: **600 requests/minute** per key (or IP), token-bucket. Above the limit:
 
 ```http
 HTTP/1.1 429 Too Many Requests
@@ -192,9 +191,10 @@ Retry-After: 2
 ```
 
 ```json
-{"detail": "So'rovlar soni chegaradan oshdi. Keyinroq qayta urinib ko'ring.",
+{"detail": "Request rate limit exceeded. Try again later.",
  "retry_after_seconds": 1.2}
 ```
 
-`/metrics`, `/healthz`, `/readyz`, `/docs`, `/redoc`, `/openapi.json` — cheklanmaydi.
-Sozlash: `SINS_RATE_LIMIT_ENABLED`, `SINS_RATE_LIMIT_PER_MINUTE`.
+`/metrics`, `/healthz`, `/readyz`, `/docs`, `/redoc`, `/openapi.json` are not
+limited. Configure with `SINS_RATE_LIMIT_ENABLED` and
+`SINS_RATE_LIMIT_PER_MINUTE`.

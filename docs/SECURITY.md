@@ -1,82 +1,85 @@
-# Xavfsizlik
+# Security
 
-## Model (tahdidlar)
+## Threat model
 
-| Tahdid | Nazorat |
+| Threat | Control |
 |---|---|
-| Ruxsatsiz skanerlash | Egalik darvozasi (DNS TXT / `.well-known`), `--lab` faqat private IP |
-| Mijozlararo ma'lumot sizishi | Har bir so'rov `tenant_id` bilan chegaralangan; begona ID → 404 |
-| API kalit o'g'irlanishi | Bazada faqat SHA-256 hash; rotatsiya endpointi; prefiks log uchun |
-| Buyruq in'ektsiyasi | `runner.py` — argv ro'yxati, `shell=False`, oq ro'yxat |
-| Resurs ochligi (DoS) | Rate limit, `max_rps`, tool timeout, chiqish hajmi chegarasi |
-| Log orqali ma'lumot sizishi | Kalit/parol logga yozilmaydi; `X-Request-ID` sanitizatsiya qilinadi |
-| Saqlangan ma'lumot ko'payishi | `sins prune` + ARQ cron (`SINS_RETENTION_DAYS`, sukut 180) |
-| Tool noldan katta chiqishi | `MAX_OUTPUT_BYTES`, topilmalar soni `MAX_FINDINGS_PER_SCAN=5000` |
+| Unauthorized scanning | Ownership gate (DNS TXT / `.well-known`); `--lab` accepts private IPs only |
+| Cross-tenant data leakage | Every query is bounded by `tenant_id`; a foreign ID returns 404 |
+| Stolen API key | Only a SHA-256 hash in the database; rotation endpoint; prefix kept for logs |
+| Command injection | `runner.py` - argv list, `shell=False`, allowlist |
+| Resource exhaustion (DoS) | Rate limit, `max_rps`, tool timeout, output size cap |
+| Leakage through logs | Keys and passwords are never logged; `X-Request-ID` is sanitized |
+| Unbounded data growth | `sins prune` + ARQ cron (`SINS_RETENTION_DAYS`, default 180) |
+| Tool producing too much output | `MAX_OUTPUT_BYTES`, finding count capped by `MAX_FINDINGS_PER_SCAN=5000` |
 
-## Egalik darvozasi
+## Ownership gate
 
-Skanerlashdan oldin nishon egaligi isbotlanadi:
+Target ownership is proven before any scan:
 
 1. `sins verify example.com` → token (`sinsv_…`, TTL `SINS_VERIFY_TOKEN_TTL_HOURS`).
-2. Tasdiqlash: `_sins-verify.example.com TXT "<token>"` **yoki**
+2. Verification: `_sins-verify.example.com TXT "<token>"` **or**
    `https://example.com/.well-known/sins-verify-<token>`.
-3. Har `SINS_VERIFY_RECHECK_DAYS` (sukut 30) kunda qayta tekshiriladi;
-   o'tmasa skan `blocked` bo'ladi va hech qanday tool ishga tushmaydi.
+3. Re-checked every `SINS_VERIFY_RECHECK_DAYS` (default 30); if it fails the
+   scan becomes `blocked` and no tool is started.
 
-`--lab` / lab nishon: faqat `localhost`, `127.0.0.0/8`, `10/8`, `172.16/12`,
-`192.168/16`, `::1`, `.local`. Tashqi manzil `--lab` bilan **rad etiladi**.
+`--lab` / lab targets: `localhost`, `127.0.0.0/8`, `10/8`, `172.16/12`,
+`192.168/16`, `::1`, `.local` only. An external address with `--lab` is
+**rejected**.
 
-## Sirli ma'lumotlar
+## Secrets
 
-- `.env` git'ga tushmaydi (`.gitignore`), `.env.example` — faqat namuna.
-- API kalit: 32 bayt `secrets.token_urlsafe` → `sins_` prefiksi.
-- Bazada: `sha256(api_key)` + birinchi 12 belgi (log/dashboard uchun).
-- Kalit hech qachon log, metrika yoki xato matniga tushmaydi.
-- Rate limit kaliti ham hash'ning qismi — ochiq kalit xotirada yo'q.
+- `.env` is never committed (`.gitignore`); `.env.example` is a template only.
+- API key: 32 bytes from `secrets.token_urlsafe`, `sins_` prefix.
+- Stored as `sha256(api_key)` plus the first 12 characters (for logs and the dashboard).
+- A key never reaches a log line, a metric or an error message.
+- The rate limit bucket is keyed on the hash as well - the raw key is never held
+  in memory for that purpose.
 
-Commit oldidan:
+Before committing:
 
 ```bash
-git diff --cached | grep -iE "sins_|password|secret|api[_-]?key" || echo "toza"
+git diff --cached | grep -iE "sins_|password|secret|api[_-]?key" || echo "clean"
 ```
 
-## Subprocess xavfsizligi
+## Subprocess safety
 
-`runner.py` qoidalari:
+Rules enforced by `runner.py`:
 
-- Faqat **argv ro'yxati** — satr birlashtirish yo'q, `shell=False`.
-- `PATH`dagi bajariladigan fayl `shutil.which` bilan tekshiriladi.
-- Timeout (`SINS_TOOL_TIMEOUT_SECONDS`, sukut 900) — butun process guruhi
-  o'ldiriladi (`killpg`), farzand jarayonlar qolmaydi.
-- Chiqish `MAX_OUTPUT_BYTES` bilan cheklanadi (xotira himoyasi).
-- Muhit (env) tozalanadi: tool'ga bizning sirlarimiz uzatilmaydi.
+- **argv list only** - no string concatenation, `shell=False`.
+- The binary on `PATH` is resolved with `shutil.which`.
+- Timeout (`SINS_TOOL_TIMEOUT_SECONDS`, default 900) kills the entire process
+  group (`killpg`), so no child process survives.
+- Output is capped by `MAX_OUTPUT_BYTES` (memory protection).
+- The environment is scrubbed: our secrets are not passed to the tool.
 
-## HTTP qatlami
+## HTTP layer
 
-- Rate limit: token-bucket, kalit yoki IP bo'yicha, `429` + `Retry-After`.
-- `X-Request-ID`: faqat `[A-Za-z0-9_-]`, 64 belgi — log injection bloklanadi.
-- Barcha xato javoblari `{"detail": ...}`; stack trace mijozga chiqmaydi.
-- CORS yoqilmagan (server-server API). UI kerak bo'lsa — aniq origin ro'yxati.
+- Rate limit: token-bucket per key or IP, `429` + `Retry-After`.
+- `X-Request-ID`: `[A-Za-z0-9_-]` only, 64 characters - blocks log injection.
+- Every error response is `{"detail": ...}`; stack traces never reach the client.
+- CORS is off (server-to-server API). If a UI needs it, use an explicit origin
+  allowlist.
 
-## Konteyner
+## Container
 
-- Non-root foydalanuvchi (`uid 10001`).
-- Multi-stage build — kompilyatorlar runtime obrazida yo'q.
-- `.dockerignore` `.env`, `.git`, testlarni chiqarib tashlaydi.
+- Non-root user (`uid 10001`).
+- Multi-stage build - compilers are not in the runtime image.
+- `.dockerignore` excludes `.env`, `.git` and the tests.
 - `HEALTHCHECK` → `/healthz`.
-- `nuclei`/`osv-scanner` obrazga kirmaydi: ularni mount qiling yoki alohida
-  konteynerda ishlating (versiya nazorati osonroq).
+- `nuclei` and `osv-scanner` are not baked into the image: mount them or run
+  them in a separate container (version control is simpler that way).
 
-## Nima ataylab yo'q
+## Deliberately absent
 
-| Imkoniyat | Sabab |
+| Capability | Reason |
 |---|---|
-| Brute-force (Hydra) | Huquqiy javobgarlik; mijoz roziligi isbotlanmaydi |
-| DDoS / stress-test | Xizmat ko'rsatishni to'xtatish — jinoyat |
-| Qo'lda exploit payload | 0-day mas'uliyati; natija yetarli |
-| Public signup | Har bir tenant qo'lda yaratiladi (`sins create-tenant`) |
+| Brute force (Hydra) | Legal liability; customer consent cannot be proven |
+| DDoS / stress testing | Taking a service down is a criminal offense |
+| Hand-written exploit payloads | 0-day responsibility; the result is produced without them |
+| Public signup | Every tenant is created by hand (`sins create-tenant`) |
 
-## Incidentda nima qilish
+## What to do during an incident
 
-[`RUNBOOK.md`](RUNBOOK.md) → "Incident" bo'limi: kalit rotatsiyasi, tenant
-bloklash, loglarni yig'ish.
+[`RUNBOOK.md`](RUNBOOK.md) → the "Incident" section: key rotation, tenant
+blocking, log collection.
