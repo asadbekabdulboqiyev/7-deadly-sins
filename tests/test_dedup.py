@@ -37,8 +37,8 @@ def test_correlate_merges_same_cve_from_two_tools() -> None:
 
     merged = correlate([a, b])
 
-    assert len(merged) == 1, "bir xil CVE ikki tool'da topilsa — bitta finding bo'lishi kerak"
-    assert merged[0].severity is Severity.critical, "eng yuqori severity saqlanadi"
+    assert len(merged) == 1, "the same CVE found by two tools must merge into one finding"
+    assert merged[0].severity is Severity.critical, "the highest severity is kept"
     assert set(merged[0].source_tools) == {"nuclei", "nmap-vulners"}
     assert "corroborating" in merged[0].evidence
 

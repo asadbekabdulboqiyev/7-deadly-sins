@@ -1,6 +1,6 @@
 """SINS — attack surface & vulnerability assessment platform.
 
-Ichki kod nomi: 7sins. Mahsulot nomi keyin almashtiriladi.
+Internal codename: 7sins. Product name TBD.
 """
 
 __version__ = "0.1.0"

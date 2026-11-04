@@ -1,4 +1,4 @@
-"""HTTP API: autentifikatsiya, egalik darvozasi, skan oqimi, PDF."""
+"""HTTP API: authentication, ownership gate, scan flow, PDF."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ async def test_scan_requires_verified_target(client, tenant) -> None:
 
     resp = await client.post("/scans", json={"target_id": target_id}, headers=_auth(api_key))
     assert resp.status_code == 409
-    assert "tasdiqlanmagan" in resp.json()["detail"]
+    assert "not verified" in resp.json()["detail"].lower()
 
 
 async def test_scan_flow_and_pdf(monkeypatch, client, tenant) -> None:
@@ -92,7 +92,7 @@ async def test_scan_flow_and_pdf(monkeypatch, client, tenant) -> None:
     scan_id = resp.json()["id"]
     assert resp.json()["status"] == "pending"
 
-    # Inline fon vazifasi (Redis'siz rejim) tugashini kutamiz
+    # Inline worker task (Redis-less mode) - wait for it to finish
     for _ in range(100):
         status_resp = await client.get(f"/scans/{scan_id}", headers=_auth(api_key))
         assert status_resp.status_code == 200
@@ -100,7 +100,7 @@ async def test_scan_flow_and_pdf(monkeypatch, client, tenant) -> None:
             break
         await asyncio.sleep(0.05)
     else:  # pragma: no cover
-        raise AssertionError("skan tugamadi")
+        raise AssertionError("scan did not finish")
 
     body = status_resp.json()
     assert body["progress"] == 100
@@ -123,7 +123,7 @@ async def test_scan_flow_and_pdf(monkeypatch, client, tenant) -> None:
 async def test_pdf_rejected_until_scan_done(monkeypatch, client, tenant) -> None:
     _, api_key = tenant
 
-    async def _never(_scan_id) -> None:  # skan hech qachon tugamaydi
+    async def _never(_scan_id) -> None:  # scan never finishes
         return None
 
     monkeypatch.setattr(scan_service, "execute_scan", _never)
@@ -149,7 +149,7 @@ async def test_scan_isolation_between_tenants(client, tenant, session) -> None:
     )
     target_id = created.json()["id"]
 
-    # Boshqa tenant bu nishonni ko'rmaydi va unga skan boshlamaydi
+    # Another tenant cannot see this target and cannot scan it
     assert (await client.get("/targets", headers=_auth(other_key))).json() == []
     resp = await client.post("/scans", json={"target_id": target_id}, headers=_auth(other_key))
     assert resp.status_code == 404

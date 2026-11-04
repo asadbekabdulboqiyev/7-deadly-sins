@@ -1,7 +1,7 @@
-"""Kanonik Finding shartnomasi.
+"""Canonical Finding contract.
 
-Barcha adapterlar (nuclei, osv, sslyze, ...) aynan shu formatga qaytaradi.
-Bu — butun tizimning yuragi. Tool'lar o'zgaradi, bu shartnoma qoladi.
+All adapters (nuclei, osv, sslyze, ...) return exactly this format.
+This is the heart of the whole system. Tools change, this contract does not.
 """
 
 from __future__ import annotations
@@ -30,18 +30,18 @@ SEVERITY_ORDER: dict[Severity, int] = {
 
 
 class Category(StrEnum):
-    exposure = "exposure"  # Pride   — ochiq portlar, subdomenlar
-    vuln = "vuln"  # Greed   — CVE zaifliklar
-    auth = "auth"  # Lust    — autentifikatsiya kamchiliklari
+    exposure = "exposure"  # Pride   — open ports, subdomains
+    vuln = "vuln"  # Greed   — CVE vulnerabilities
+    auth = "auth"  # Lust    — authentication weaknesses
     tls = "tls"  # Envy    — SSL/TLS
-    resilience = "resilience"  # Gluttony— barqarorlik (past yuklama)
-    exploit = "exploit"  # Wrath   — tasdiqlangan ekspluatatsiya
-    dependency = "dependency"  # Sloth   — eskirgan kutubxonalar
-    misconfig = "misconfig"  # Sloth   — noto'g'ri konfiguratsiya
+    resilience = "resilience"  # Gluttony— resilience (low load)
+    exploit = "exploit"  # Wrath   — confirmed exploitation
+    dependency = "dependency"  # Sloth   — outdated libraries
+    misconfig = "misconfig"  # Sloth   — misconfiguration
 
 
 class Remediation(BaseModel):
-    """Tuzatish yo'li. Bu — mahsulotning asosiy qiymati."""
+    """Remediation path. This is the core value of the product."""
 
     summary: str
     steps: list[str] = Field(default_factory=list)
@@ -50,7 +50,7 @@ class Remediation(BaseModel):
 
 
 class FindingContract(BaseModel):
-    """Bitta topilma. Barcha adapterlar shu shaklda qaytaradi."""
+    """A single finding. All adapters return this shape."""
 
     category: Category
     title: str
@@ -63,6 +63,6 @@ class FindingContract(BaseModel):
     source_tools: list[str] = Field(default_factory=list)
     dedup_key: str
     remediation: Remediation | None = None
-    # Bitta template ichidagi farqli natijalarni ajratish uchun
-    # (masalan nuclei `matcher-name`: content-security-policy, x-frame-options ...)
+    # Distinguishes different results within a single template
+    # (e.g. nuclei `matcher-name`: content-security-policy, x-frame-options ...)
     sub_id: str | None = None

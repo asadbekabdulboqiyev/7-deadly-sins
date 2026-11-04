@@ -254,16 +254,16 @@
   <div class="cover-bar"></div>
 
   <div class="cover-kicker">Security Assessment Report</div>
-  <div class="cover-title">Zaifliklar va<br>attack surface tahlili</div>
+  <div class="cover-title">Vulnerabilities and<br>attack surface analysis</div>
   <div class="cover-target mono">{{ target }}</div>
 
   <table class="meta-table">
-    <tr><td>Mijoz</td><td>{{ tenant_name }}</td></tr>
-    <tr><td>Skan ID</td><td class="mono">{{ scan_id }}</td></tr>
+    <tr><td>Client</td><td>{{ tenant_name }}</td></tr>
+    <tr><td>Scan ID</td><td class="mono">{{ scan_id }}</td></tr>
     <tr><td>Sana</td><td>{{ generated_at_str }}</td></tr>
-    <tr><td>Davomiylik</td><td>{{ duration_s }} s</td></tr>
-    <tr><td>Ishlatilgan engine</td><td>{{ engine_names }}</td></tr>
-    <tr><td>Jami topilma</td><td><strong>{{ total_findings }}</strong></td></tr>
+    <tr><td>Duration</td><td>{{ duration_s }} s</td></tr>
+    <tr><td>Engine used</td><td>{{ engine_names }}</td></tr>
+    <tr><td>Total findings</td><td><strong>{{ total_findings }}</strong></td></tr>
   </table>
 
   <table class="cards">
@@ -278,24 +278,24 @@
   </table>
 
   <div class="cover-foot">
-    Ushbu hisobot maxfiy. Faqat belgilangan mijoz va uning vakolatli xodimlari uchun.
+    This report is confidential. For the authorized client and its authorized personnel only.
     Tarqatish taqiqlanadi.
   </div>
 </div>
 
 <!-- ============ EXECUTIVE SUMMARY ============ -->
 <div class="section">
-  <h2>1. Umumiy xulosa</h2>
+  <h2>1. Executive summary</h2>
 
   <div class="risk-box">
     <table class="risk-head">
       <tr>
         <td>
-          <div class="risk-grade">Umumiy risk darajasi</div>
+          <div class="risk-grade">Overall risk level</div>
           <div style="font-size:12pt;font-weight:700;margin-top:1mm">{{ risk_grade }}</div>
         </td>
         <td>
-          <div class="risk-grade">Risk ball</div>
+          <div class="risk-grade">Risk score</div>
           <div class="risk-score">{{ risk_score }}<span style="font-size:10pt;color:#94a3b8">/100</span></div>
         </td>
       </tr>
@@ -307,31 +307,31 @@
 
   {% if total_findings == 0 %}
   <div class="empty">
-    <strong>Topilma yo'q.</strong><br>
-    Tekshirilgan engine'lar hech qanday ma'lum zaiflikni aniqlamadi.
+    <strong>No findings.</strong><br>
+    The selected engines did not identify any vulnerability.
   </div>
   {% else %}
   <p>
-    <strong>{{ target }}</strong> nishonida jami <strong>{{ total_findings }}</strong> ta topilma qayd etildi.
+    <strong>{{ target }}</strong> exposed <strong>{{ total_findings }}</strong> findings in total.
     {% if counts.critical %}
-    Ulardan <strong class="c-critical">{{ counts.critical }} tasi kritik</strong> — bu zaifliklar zudlik bilan
-    tuzatilishi kerak, chunki ular tizimga to'liq kirish yoki ma'lumot o'g'irlashga olib kelishi mumkin.
+    Of these, <strong class="c-critical">{{ counts.critical }} are critical</strong> — they may allow full
+    authentication bypass or data exposure.
     {% endif %}
     {% if counts.high %}
-    <strong class="c-high">{{ counts.high }} tasi yuqori</strong> darajali.
+    <strong class="c-high">{{ counts.high }} are high</strong> severity.
     {% endif %}
     {% if counts.medium %}
-    {{ counts.medium }} tasi o'rta darajali.
+    {{ counts.medium }} are medium severity.
     {% endif %}
   </p>
 
-  <h3 style="margin-top:6mm">Eng jiddiy topilmalar</h3>
+  <h3 style="margin-top:6mm">Top findings</h3>
   <table class="grid">
     <thead>
       <tr>
-        <th style="width:20mm">Daraja</th>
-        <th>Topilma</th>
-        <th style="width:45mm">Joylashuv</th>
+        <th style="width:20mm">Severity</th>
+        <th>Finding</th>
+        <th style="width:45mm">Location</th>
       </tr>
     </thead>
     <tbody>
@@ -351,10 +351,10 @@
     <thead>
       <tr>
         <th>Engine</th>
-        <th>Vazifa</th>
-        <th style="width:22mm">Topilma</th>
-        <th style="width:22mm">Vaqt</th>
-        <th style="width:20mm">Holat</th>
+        <th>Focus</th>
+        <th>Finding</th>
+        <th style="width:22mm">Duration</th>
+        <th style="width:20mm">Status</th>
       </tr>
     </thead>
     <tbody>
@@ -365,7 +365,7 @@
         {% if e.get('skipped') %}
         <td class="muted">—</td>
         <td class="muted">—</td>
-        <td><span class="muted">o'tkazib yuborildi</span></td>
+        <td><span class="muted">not run</span></td>
         {% else %}
         <td>{{ e.findings }}</td>
         <td class="muted">{{ (e.duration_ms / 1000) | round(1) }} s</td>
@@ -377,8 +377,8 @@
   </table>
   {% if engines | selectattr('skipped') | list %}
   <p class="muted" style="font-size:8.5pt; margin-top:2mm">
-    O'tkazib yuborilgan engine'lar nishon turiga mos kelmaydi (masalan, dependency
-    auditi faqat lokal kod papkasi bilan ishlaydi) — ular bu skanda ishga tushirilmagan.
+    Inapplicable engines were skipped (for example, the dependency audit only runs
+    against a local source tree) - they were not executed for this scan.
   </p>
   {% endif %}
 </div>
@@ -386,14 +386,14 @@
 <!-- ============ FINDINGS TABLE ============ -->
 {% if findings %}
 <div class="section">
-  <h2>2. Topilmalar ro'yxati</h2>
+  <h2>2. Findings list</h2>
   <table class="grid">
     <thead>
       <tr>
         <th style="width:8mm">#</th>
-        <th style="width:20mm">Daraja</th>
-        <th>Topilma</th>
-        <th style="width:38mm">Joylashuv</th>
+        <th style="width:20mm">Severity</th>
+        <th>Finding</th>
+        <th style="width:38mm">Location</th>
         <th style="width:22mm">CVE</th>
       </tr>
     </thead>
@@ -413,7 +413,7 @@
 
 <!-- ============ FINDINGS DETAIL ============ -->
 <div class="section">
-  <h2>3. Topilmalar tafsiloti</h2>
+  <h2>3. Findings detail</h2>
 
   {% for f in findings %}
   <div class="finding">
@@ -431,7 +431,7 @@
 
     <table class="kv">
       <tr><td>Kategoriya</td><td>{{ f.category.value }}</td></tr>
-      <tr><td>Joylashuv</td><td class="mono">{{ f.location }}</td></tr>
+      <tr><td>Location</td><td class="mono">{{ f.location }}</td></tr>
       {% if f.cve %}<tr><td>CVE</td><td class="mono">{{ f.cve | join(", ") }}</td></tr>{% endif %}
       {% if f.cwe %}<tr><td>CWE</td><td class="mono">{{ f.cwe | join(", ") }}</td></tr>{% endif %}
       <tr><td>Manba</td><td class="mono">{{ f.source_tools | join(", ") }}</td></tr>
@@ -439,7 +439,7 @@
 
     {% if f.remediation %}
     <div class="remediation">
-      <div class="remediation-title">Tuzatish</div>
+      <div class="remediation-title">Remediation</div>
       <p style="font-size:8.5pt;margin-bottom:1.5mm">{{ f.remediation.summary }}</p>
       {% if f.remediation.steps %}
       <ul>
@@ -461,38 +461,37 @@ vuln:     {{ f.evidence.vuln_id }}{% endif %}</div>
 
 <!-- ============ METHODOLOGY ============ -->
 <div class="section">
-  <h2>{{ 4 if findings else 3 }}. Metodologiya va cheklovlar</h2>
+  <h2>{{ 4 if findings else 3 }}. Methodology and scope</h2>
 
   <h3>Qanday tekshirildi</h3>
   <p>
-    Barcha tekshiruvlar avtomatlashtirilgan open-source vositalar orqali amalga oshirildi.
-    Skan faqat nishon egaligi tasdiqlangandan keyin boshlandi (DNS TXT yozuvi yoki
-    <span class="mono">/.well-known/</span> fayli orqali).
+    All checks were performed automatically through open-source tooling.
+    The scan starts only after target ownership is verified (via DNS TXT record or
+    the <span class="mono">/.well-known/</span> file).
   </p>
   <ol>
-    <li><strong>Greed</strong> — <span class="mono">nuclei</span> bilan ma'lum CVE va konfiguratsiya zaifliklari.</li>
-    <li><strong>Sloth</strong> — <span class="mono">osv-scanner</span> bilan eskirgan kutubxonalar (nishonga tegmasdan).</li>
+    <li><strong>Greed</strong> — known CVE and configuration vulnerability findings via <span class="mono">nuclei</span>.</li>
+    <li><strong>Sloth</strong> — known vulnerable dependencies via <span class="mono">osv-scanner</span>.</li>
   </ol>
 
-  <h3>Cheklovlar</h3>
+  <h3>Limitations</h3>
   <div class="note">
-    <strong>Bu penetration test emas.</strong> Hisobot avtomatlashtirilgan skan natijasidir.
-    Biznes logikasi, huquqlarni chetlab o'tish (IDOR), murakkab biznes oqimlari va
-    ijtimoiy injiniring tekshirilmagan. Yuqori riskli tizimlar uchun qo'lda
-    penetration test tavsiya etiladi.
+    <strong>This is not a penetration test.</strong> The report is the output of an automated scan.
+    Business logic, authorisation bypasses (IDOR), complex business flows and social
+    engineering were not tested. A manual penetration test is recommended for high-risk systems.
   </div>
 
   <h3 style="margin-top:6mm">False positive haqida</h3>
   <p>
-    Avtomatlashtirilgan skanerlar ba'zan noto'g'ri natija beradi. Har bir kritik va
-    yuqori darajali topilma tuzatishdan oldin qo'lda tasdiqlanishi tavsiya etiladi.
+    Automated scanners can sometimes produce false positives. A manual confirmation
+    before remediating each critical or high-severity finding is recommended.
   </p>
 
-  <h3 style="margin-top:6mm">Hisobot haqida</h3>
+  <h3 style="margin-top:6mm">About this report</h3>
   <table class="kv">
-    <tr><td>Skan ID</td><td class="mono">{{ scan_id }}</td></tr>
+    <tr><td>Scan ID</td><td class="mono">{{ scan_id }}</td></tr>
     <tr><td>Yaratilgan</td><td>{{ generated_at_str }}</td></tr>
-    <tr><td>Nishon</td><td class="mono">{{ target }}</td></tr>
+    <tr><td>Target</td><td class="mono">{{ target }}</td></tr>
     <tr><td>Engine</td><td class="mono">{{ engine_names }}</td></tr>
   </table>
 </div>

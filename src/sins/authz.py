@@ -1,7 +1,7 @@
 """Authorization gate.
 
-BU — mahsulotning litsenziyasi. Skandan OLDIN nishon egaligi isbotlanadi.
-Usiz platforma hacking-as-a-service bo'lib qoladi.
+THIS is the product's license. Target ownership is proven BEFORE a scan.
+Without it the platform is hacking-as-a-service.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ VERIFY_LABEL = "_sins-verify"
 
 
 class OwnershipError(RuntimeError):
-    """Nishon egaligi isbotlanmadi — skan bloklanadi."""
+    """Target ownership was not proven — the scan is blocked."""
 
 
 def issue_token() -> str:
@@ -25,7 +25,7 @@ def issue_token() -> str:
 
 
 async def verify_dns_txt(domain: str, token: str, *, timeout: float = 5.0) -> bool:
-    """`_sins-verify.<domain>` TXT yozuvi tokenga teng bo'lishi kerak."""
+    """The `_sins-verify.<domain>` TXT record must equal the token."""
     resolver = dns.asyncresolver.Resolver()
     resolver.timeout = timeout
     resolver.lifetime = timeout
@@ -43,9 +43,9 @@ async def verify_dns_txt(domain: str, token: str, *, timeout: float = 5.0) -> bo
 
 
 async def verify_http_file(host: str, token: str, *, timeout: float = 10.0) -> bool:
-    """`/.well-known/sins-verify-<token>` fayli 200 qaytarishi kerak."""
+    """The `/.well-known/sins-verify-<token>` file must return 200."""
     path = f"/.well-known/sins-verify-{token}"
-    # Sertifikat xatosi bo'lsa ham tekshiramiz — bu faqat egalik isboti, maxfiy ma'lumot emas.
+    # We check even on certificate errors — this is only proof of ownership, not confidential data.
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False) as client:
         for scheme in ("https", "http"):
             try:
@@ -58,7 +58,7 @@ async def verify_http_file(host: str, token: str, *, timeout: float = 10.0) -> b
 
 
 async def verify_ownership(target: str, token: str) -> tuple[bool, str]:
-    """Ikki usulni parallel sinab ko'radi. Qaysi biri ishlaganini qaytaradi."""
+    """Tries both methods in parallel. Returns whichever succeeded."""
     host = target
     for prefix in ("https://", "http://"):
         if host.startswith(prefix):
@@ -78,12 +78,12 @@ async def verify_ownership(target: str, token: str) -> tuple[bool, str]:
 
 
 async def assert_authorized(target: str, token: str) -> str:
-    """Skanni boshlashdan oldin chaqiriladi. O'tmasa — exception."""
+    """Called before starting a scan. Raises if it fails."""
     ok, method = await verify_ownership(target, token)
     if not ok:
         raise OwnershipError(
-            f"'{target}' egaligi isbotlanmadi. "
-            f"TXT yozuvi: {VERIFY_LABEL}.<domain> = <token> "
-            f"yoki fayl: /.well-known/sins-verify-<token>"
+            f"Ownership of '{target}' was not proven. "
+            f"TXT record: {VERIFY_LABEL}.<domain> = <token> "
+            f"or file: /.well-known/sins-verify-<token>"
         )
     return method

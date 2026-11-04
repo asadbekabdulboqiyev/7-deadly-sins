@@ -1,8 +1,8 @@
-"""Structured logging, request IDs va in-process metrikalar.
+"""Structured logging, request IDs and in-process metrics.
 
-Tashqi bog'liqlik yo'q: metrikalar jarayon xotirasida yig'iladi va
-`/metrics` ularni Prometheus text formatida chiqaradi. Ko'p instansiya
-ishlatilsa, Prometheus har bir instansiyani alohida scrape qiladi.
+No external dependencies: metrics are collected in process memory and
+`/metrics` exports them in Prometheus text format. When multiple instances
+run, Prometheus scrapes each instance separately.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import Any
 
 _request_id: ContextVar[str] = ContextVar("sins_request_id", default="-")
 
-# Log yozuvlariga qo'shimcha sifatida biriktiriladigan maydonlar.
+# Fields attached to log records as extra attributes.
 _EXTRA_FIELDS = (
     "event",
     "tenant_id",
@@ -50,9 +50,9 @@ def new_request_id() -> str:
 
 
 def sanitize_request_id(raw: str | None) -> str | None:
-    """Tashqi sarlavhadan kelgan ID'ni ishonchli ko'rinishga keltiradi.
+    """Sanitizes an ID received from an external header.
 
-    Faqat 64 tagacha harf/raqam/-/_ qabul qilinadi — log injection oldini oladi.
+    Only up to 64 alphanumeric/-/_ characters are accepted — prevents log injection.
     """
     if not raw:
         return None
@@ -66,7 +66,7 @@ def sanitize_request_id(raw: str | None) -> str | None:
 
 
 class JsonFormatter(logging.Formatter):
-    """Har bir log yozuvi — bitta JSON qatori (log aggregatorlar uchun)."""
+    """Each log record is a single JSON line (for log aggregators)."""
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -86,7 +86,7 @@ class JsonFormatter(logging.Formatter):
 
 
 class TextFormatter(logging.Formatter):
-    """Dev uchun o'qilishi oson format, request_id bilan."""
+    """Readable format for dev, with request_id."""
 
     def format(self, record: logging.LogRecord) -> str:
         base = super().format(record)
@@ -95,7 +95,7 @@ class TextFormatter(logging.Formatter):
 
 
 def configure_logging(level: str | None = None) -> None:
-    """Root loggerni bir marta sozlaydi (idempotent)."""
+    """Configures the root logger once (idempotent)."""
     log_level = (level or os.environ.get("SINS_LOG_LEVEL", "INFO")).upper()
     as_json = os.environ.get("SINS_LOG_JSON", "1").lower() not in {"0", "false", "no"}
 
@@ -112,7 +112,7 @@ def configure_logging(level: str | None = None) -> None:
     root.addHandler(handler)
     root.setLevel(log_level)
 
-    # Uvicorn'ning o'z handler'lari dublikat yozmasin.
+    # Prevent Uvicorn's own handlers from writing duplicates.
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logger = logging.getLogger(name)
         logger.handlers = []
@@ -140,7 +140,7 @@ def _fmt_labels(labels: str) -> str:
 
 
 class MetricsRegistry:
-    """Minimal, thread-safe counter/gauge/summary registri."""
+    """Minimal, thread-safe counter/gauge/summary registry."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()

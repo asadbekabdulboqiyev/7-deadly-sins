@@ -36,7 +36,7 @@ async def _finding(
     *,
     severity: Severity = Severity.high,
     engine: str = "nuclei",
-    title: str = "Topilma",
+    title: str = "Finding",
 ) -> Finding:
     row = Finding(
         tenant_id=owner.id,
@@ -291,7 +291,7 @@ async def _old_scan(session, owner, *, days: int = 60):
 
 
 async def _purge_leftovers(session) -> None:
-    """Oldingi testlardan qolgan eski skanlarni tozalaydi (prune global ishlaydi)."""
+    """Delete leftover old scans from previous tests (prune runs globally)."""
     await scan_service.prune_scans(session, older_than_days=1)
 
 
@@ -477,7 +477,7 @@ async def test_finding_counts_for_many_scans(session, tenant) -> None:
 
     counts = await scan_service.finding_counts(session, [first.id, second.id, empty.id])
 
-    # Topilmasi yo'q skan lug'atda umuman yo'q — chaqiruvchi `.get(id, 0)` ishlatadi.
+    # A scan with no findings is simply absent from the map - the client uses `.get(id, 0)`.
     assert counts == {first.id: 2, second.id: 1}
     assert counts.get(empty.id, 0) == 0
 

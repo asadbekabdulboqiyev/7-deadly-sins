@@ -1,7 +1,7 @@
-"""API uchun so'rov/javob modellari.
+"""Request/response models for the API.
 
-DB modellari bilan aralashtirmaymiz: API shartnomasi alohida yashaydi,
-shunda bazadagi o'zgarish mijozlarni buzmaydi.
+Kept separate from the DB models: the API contract lives on its own,
+so database changes do not break clients.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ class TargetCreate(BaseModel):
 
 
 class VerifyInstructions(BaseModel):
-    """Foydalanuvchi nima qilishi kerakligi — aniq qadamlar."""
+    """What the user must do — exact steps."""
 
     dns_record: str | None = None
     dns_value: str | None = None
@@ -44,12 +44,12 @@ class TargetOut(BaseModel):
 class ScanCreate(BaseModel):
     target_id: UUID
     engines: list[str] | None = Field(
-        default=None, examples=[["nuclei", "osv"]], description="Bo'sh bo'lsa — barchasi"
+        default=None, examples=[["nuclei", "osv"]], description="Empty means all"
     )
     severities: list[str] | None = Field(
         default=None,
         examples=[["critical", "high", "medium", "low"]],
-        description="Bo'sh bo'lsa — info'siz barcha darajalar",
+        description="Empty means all levels except info",
     )
 
 
@@ -96,7 +96,7 @@ class FindingsPage(BaseModel):
 
 
 class DiffFinding(BaseModel):
-    """Diff ichida faqat qaror uchun kerakli maydonlar."""
+    """Only the fields needed for a decision inside a diff."""
 
     dedup_key: str
     severity: Severity
@@ -123,11 +123,11 @@ class TenantOut(BaseModel):
 
 
 class RotateKeyOut(BaseModel):
-    """Yangi kalit faqat bir marta ko'rsatiladi."""
+    """The new key is shown only once."""
 
     api_key: str
     api_key_prefix: str
-    warning: str = "Eski kalit shu zahoti ishlamaydi. Yangi kalitni xavfsiz saqlang."
+    warning: str = "The old key stops working immediately. Store the new key securely."
 
 
 class SeverityCountsPage(BaseModel):

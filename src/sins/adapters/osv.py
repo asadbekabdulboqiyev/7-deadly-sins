@@ -1,11 +1,11 @@
-"""Sin 7 — Sloth: dependency & configuration audit.
+"""Sloth: dependency and configuration audit.
 
-Nega osv-scanner:
-  - Google'ning rasmiy vositasi, OSV bazasi (GitHub Advisory + PyPA + RustSec ...)
-  - `fixed_version` beradi -> remediation avtomatik yoziladi
-  - nishonga UMUMAN tegmaydi: faqat lockfile/repo o'qiladi => huquqiy risk 0
+Why osv-scanner:
+  - Google's official tool, backed by the OSV database (GitHub Advisory + PyPA + RustSec ...)
+  - provides `fixed_version` -> remediation is written automatically
+  - never touches the target at all: it only reads lockfiles/repos => zero legal risk
 
-Bu — huquqiy jihatdan eng xavfsiz modul va remediation qiymati eng yuqori.
+This is the legally safest module and delivers the highest remediation value.
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ class OsvAdapter:
         return which("osv-scanner") is not None
 
     def applies_to(self, target: str) -> bool:
-        """osv-scanner faqat lokal papka/lockfile'ni o'qiydi.
+        """osv-scanner only reads a local directory/lockfile.
 
-        URL yoki domenga qarshi ishga tushirilsa tool osilib qoladi (tarmoqqa
-        chiqishga urinadi) va hech qanday natija bermaydi. Shuning uchun
-        bunday nishonlarda adapter umuman chaqirilmaydi.
+        Run against a URL or domain, the tool hangs (it tries to reach the
+        network) and produces no results. So the adapter is never invoked
+        for such targets.
         """
         try:
             return classify_target(target) == "path"
@@ -49,7 +49,7 @@ class OsvAdapter:
         try:
             result = run_tool(argv, timeout=ctx.timeout)
         except ToolNotFound as exc:
-            log.warning("osv-scanner topilmadi: %s", exc)
+            log.warning("osv-scanner not found: %s", exc)
             return []
         return self.parse(result, ctx.target)
 
@@ -90,13 +90,13 @@ class OsvAdapter:
 
         fixed = _fixed_version(vuln, pkg_name)
         if fixed:
-            summary = f"{pkg_name} ni {fixed} ga yangilang"
+            summary = f"Upgrade {pkg_name} to {fixed}"
         else:
-            summary = f"{pkg_name}: tuzatilgan versiya yo'q — alternativ kutubxona ko'rib chiqing"
+            summary = f"{pkg_name}: no fixed version — consider an alternative library"
         remediation = Remediation(
             summary=summary,
-            steps=[f"`{pkg_name}@{pkg_version}` -> `{fixed or 'alternativ'}`"]
-            + ([f"`{vuln_id}` bo'yicha advisory ni o'qing"] if not fixed else []),
+            steps=[f"`{pkg_name}@{pkg_version}` -> `{fixed or 'alternative'}`"]
+            + ([f"Read the advisory for `{vuln_id}`"] if not fixed else []),
             fixed_version=fixed,
             references=[r for r in (vuln.get("references") or []) if isinstance(r, str)][:5],
         )
@@ -117,13 +117,13 @@ class OsvAdapter:
 
 
 def _severity_from_vuln(vuln: dict[str, Any]) -> tuple[Severity, float | None]:
-    """OSV severity: ba'zan raqamli ball, ba'zan CVSS vektori, ba'zan database_specific."""
+    """OSV severity: numeric score, CVSS vector or database-specific value."""
     for sev in vuln.get("severity") or []:
         raw = str(sev.get("score") or "").strip()
         try:
             value = float(raw)
         except ValueError:
-            continue  # CVSS vektori — ball hisoblash uchun alohida kutubxona kerak
+            continue  # CVSS vector — computing the score needs a separate library
         return severity_from_cvss(value), value
 
     db_sev = (vuln.get("database_specific") or {}).get("severity")

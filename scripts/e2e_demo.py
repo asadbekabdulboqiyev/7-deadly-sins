@@ -1,8 +1,8 @@
-"""To'liq oqim demosi: nishon -> egalik -> skan -> topilmalar -> PDF.
+"""Full pipeline demo: target -> ownership -> scan -> findings -> PDF.
 
-Talab: API (`sins serve`) va worker (`sins worker`) ishlab turishi kerak.
+Requirement: the API (`sins serve`) and the worker (`sins worker`) must be running.
 
-Ishlatish:
+Usage:
     SINS_API_KEY=sins_... uv run python scripts/e2e_demo.py http://localhost:8099
 """
 
@@ -22,7 +22,7 @@ TARGET = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8099"
 
 def main() -> int:
     if not API_KEY:
-        print("XATO: SINS_API_KEY env o'zgaruvchisi kerak.")
+        print("ERROR: SINS_API_KEY env variable is required.")
         return 2
 
     headers = {"X-API-Key": API_KEY}
@@ -34,17 +34,17 @@ def main() -> int:
         created.raise_for_status()
         target = created.json()
         print(
-            f"2. nishon: {target['value']} ({target['kind']}), tasdiqlangan: "
+            f"2. target: {target['value']} ({target['kind']}), verified: "
             f"{target['verified_at'] is not None}"
         )
 
         if target["verified_at"] is None:
-            print("   Egalik tasdiqlanmagan — ko'rsatma:", target["instructions"])
+            print("   Ownership not verified — instructions:", target["instructions"])
             return 3
 
         scan = client.post("/scans", json={"target_id": target["id"]}).json()
         scan_id = scan["id"]
-        print(f"3. skan yaratildi: {scan_id} ({scan['status']}), engine: {scan['engines']}")
+        print(f"3. scan created: {scan_id} ({scan['status']}), engine: {scan['engines']}")
 
         deadline = time.time() + 900
         last = ""
@@ -59,15 +59,15 @@ def main() -> int:
                 break
             time.sleep(2)
         else:
-            print("XATO: skan vaqtida tugamadi.")
+            print("ERROR: scan did not finish in time.")
             return 4
 
         if state["status"] != "done":
-            print(f"XATO: skan {state['status']}: {state.get('error')}")
+            print(f"ERROR: scan {state['status']}: {state.get('error')}")
             return 5
 
         findings = client.get(f"/scans/{scan_id}/findings").json()
-        print(f"4. topilmalar: {findings['total']} ta")
+        print(f"4. findings: {findings['total']}")
         for item in findings["items"][:5]:
             print(f"   [{item['severity']:8s}] {item['title'][:70]}")
 

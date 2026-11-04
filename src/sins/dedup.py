@@ -1,8 +1,8 @@
-"""Deduplikatsiya va korrelyatsiya.
+"""Deduplication and correlation.
 
-Bu — "aggregator" deb atalgan narsaning haqiqiy qiyin qismi.
-Bitta CVE ni nuclei, nmap-vulners va trivy uchtasi ham topadi.
-Ularni BITTA finding qilish kerak, uchta emas.
+This is the genuinely hard part of what people call an "aggregator".
+A single CVE is found by nuclei, nmap-vulners and trivy all at once.
+They must become ONE finding, not three.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def normalize_location(location: str) -> str:
 
 
 def dedup_key(*parts: str) -> str:
-    """Bitta tool ichidagi takrorlarni yo'qotish uchun aniq kalit."""
+    """Exact key for removing duplicates within a single tool."""
     raw = "|".join(p.strip().lower() for p in parts)
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
@@ -40,25 +40,25 @@ def _slug(text: str) -> str:
 
 
 def normalize_cve(values: list[str]) -> list[str]:
-    """CVE ID'larni yagona formatga keltiradi: `cve-2021-44228` -> `CVE-2021-44228`."""
+    """Normalizes CVE IDs to a single format: `cve-2021-44228` -> `CVE-2021-44228`."""
     out = {str(v).strip().upper() for v in values if str(v).strip()}
     return sorted(v for v in out if v.startswith("CVE-"))
 
 
 def correlate_key(finding: FindingContract) -> str:
-    """Turli tool'lar topgan bir xil muammoni bir joyga yig'ish uchun kalit."""
+    """Key for grouping the same issue found by different tools into one entry."""
     loc = normalize_location(finding.location)
     host = loc.split("/")[0]
     if finding.cve:
-        # CVE bo'lsa — host + CVE to'plami. Ikki tool bir xil CVE topsa, birlashadi.
+        # With a CVE — host + CVE set. Two tools reporting the same CVE merge.
         return f"{host}|cve:{','.join(sorted(finding.cve))}"
-    # CVE yo'q bo'lsa — title + sub_id. sub_id bo'lmasa, mayda topilmalar
-    # noto'g'ri birlashib ketadi (masalan 10 ta yo'q header -> 1 ta finding).
+    # Without a CVE — title + sub_id. Without sub_id, minor findings
+    # would merge incorrectly (e.g. 10 missing headers -> 1 finding).
     return f"{host}|{_slug(finding.title)}|{finding.sub_id or ''}"
 
 
 def correlate(findings: list[FindingContract]) -> list[FindingContract]:
-    """Bir xil muammoni birlashtiradi, eng yuqori severity va barcha manbalarni saqlaydi."""
+    """Merges the same issue, keeping the highest severity and all sources."""
     buckets: dict[str, list[FindingContract]] = defaultdict(list)
     for f in findings:
         buckets[correlate_key(f)].append(f)

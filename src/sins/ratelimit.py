@@ -1,9 +1,9 @@
-"""Tenant/kalit bo'yicha token-bucket rate limit.
+"""Per-tenant/key token-bucket rate limiting.
 
-Chegara jarayon ichida, kalitning SHA-256 qismi bo'yicha yuritiladi —
-ochiq kalit xotirada saqlanmaydi. Ko'p instansiya uchun aniq global limit
-kerak bo'lsa, Redis'ga ko'chiriladi; bitta instansiyada bu yetarli va
-hech qanday tashqi bog'liqlik talab qilmaydi.
+The limit is tracked in-process, keyed by the SHA-256 prefix of the key —
+the raw key is never kept in memory. If an exact global limit is needed
+across multiple instances, this moves to Redis; for a single instance this
+is sufficient and requires no external dependency.
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ class TokenBucketLimiter:
         max_keys: int = 20_000,
     ) -> None:
         if capacity < 1:
-            raise ValueError("capacity >= 1 bo'lishi kerak")
+            raise ValueError("capacity must be >= 1")
         self.capacity = float(capacity)
         self.window_seconds = window_seconds
-        self.rate = self.capacity / window_seconds  # token/sekund
+        self.rate = self.capacity / window_seconds  # tokens/second
         self.max_keys = max_keys
         self._buckets: dict[str, _Bucket] = {}
         self._lock = asyncio.Lock()
@@ -45,7 +45,7 @@ class TokenBucketLimiter:
         return f"ip:{client_ip or 'unknown'}"
 
     async def acquire(self, key: str) -> tuple[bool, float]:
-        """Bitta token oladi. (ruxsat, retry_after_seconds) qaytaradi."""
+        """Takes one token. Returns (allowed, retry_after_seconds)."""
         now = time.monotonic()
         async with self._lock:
             bucket = self._buckets.get(key)
@@ -66,7 +66,7 @@ class TokenBucketLimiter:
             return False, round(missing / self.rate, 3)
 
     def _evict(self, now: float) -> None:
-        """Bucketlar soni chegaradan oshsa — eskilarni tashlaydi."""
+        """Drops the oldest buckets when their count exceeds the limit."""
         if len(self._buckets) <= self.max_keys:
             return
         ordered = sorted(self._buckets.items(), key=lambda item: item[1].updated)

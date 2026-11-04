@@ -52,11 +52,11 @@ def test_risk_score_caps_at_100() -> None:
 
 
 def test_risk_grade_thresholds() -> None:
-    assert risk_grade(0) == "TOZA"
-    assert risk_grade(10) == "PAST"
-    assert risk_grade(20) == "O'RTA"
-    assert risk_grade(50) == "YUQORI"
-    assert risk_grade(90) == "KRITIK"
+    assert risk_grade(0) == "NONE"
+    assert risk_grade(10) == "LOW"
+    assert risk_grade(20) == "MEDIUM"
+    assert risk_grade(50) == "HIGH"
+    assert risk_grade(90) == "CRITICAL"
 
 
 def test_context_counts_and_order() -> None:
@@ -64,12 +64,12 @@ def test_context_counts_and_order() -> None:
     assert ctx["total_findings"] == 5
     assert ctx["counts"]["critical"] == 1
     assert ctx["counts"]["info"] == 1
-    # Eng og'ir topilma birinchi bo'lishi kerak
+    # The highest-severity finding must come first
     assert ctx["findings"][0].severity is Severity.critical
 
 
 def test_html_escapes_user_content() -> None:
-    """XSS bo'lmasin: nishon nomi hisobotga escape qilinmasa, PDF ichida skript qoladi."""
+    """XSS-safe: the target name must be escaped in the report PDF."""
     ctx = _ctx([_f(Severity.high, "<script>alert(1)</script>")])
     html = render_html(ctx)
     assert "<script>alert(1)</script>" not in html
@@ -93,11 +93,11 @@ def test_remediation_rendered() -> None:
         "Vulnerable dependency",
         category=Category.dependency,
         remediation=Remediation(
-            summary="lodash ni 4.17.21 ga yangilang",
+            summary="Upgrade lodash to 4.17.21",
             steps=["`lodash@4.17.20` -> `lodash@4.17.21`"],
             fixed_version="4.17.21",
         ),
     )
     html = render_html(_ctx([finding]))
     assert "lodash@4.17.21" in html
-    assert "Tuzatish" in html
+    assert "Remediation" in html

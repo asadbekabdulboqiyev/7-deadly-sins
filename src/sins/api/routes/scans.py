@@ -1,4 +1,4 @@
-"""Skanlar API'si: yaratish, holat, topilmalar, diff, bekor qilish, PDF."""
+"""Scans API: create, status, findings, diff, cancel, PDF."""
 
 from __future__ import annotations
 
@@ -29,17 +29,17 @@ MAX_PAGE = 500
 
 
 async def _enqueue(request: Request, scan_id: UUID) -> None:
-    """Skan job'ini navbatga qo'yadi.
+    """Enqueues the scan job.
 
-    Redis bo'lmasa (dev rejimi) — shu jarayonda fon vazifasi sifatida boshlanadi.
+    Without Redis (dev mode) it runs as a background task in this process.
     """
     arq = getattr(request.app.state, "arq", None)
     if arq is not None:
         try:
             await arq.enqueue_job("run_scan", str(scan_id))
             return
-        except Exception:  # noqa: BLE001 — navbat yiqilsa skan yo'qolmasin
-            log.exception("ARQ navbatiga qo'shib bo'lmadi — inline bajariladi")
+        except Exception:  # noqa: BLE001 — a broken queue must not lose the scan
+            log.exception("could not enqueue on the ARQ queue — running inline")
 
     task = asyncio.create_task(scan_service.execute_scan(scan_id))
     request.app.state.tasks.add(task)
@@ -70,7 +70,7 @@ def _finding_out(row: Finding) -> FindingOut:
 
 
 def _as_filter(values: list[str] | None) -> list[str] | None:
-    """Takrorlanuvchi query parametrlarini ham, vergulli satrni ham qabul qiladi."""
+    """Accepts repeated query parameters as well as a comma-separated string."""
     if not values:
         return None
     flat: list[str] = []
@@ -87,11 +87,11 @@ async def create_scan(
     session: SessionDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ScanOut:
-    """Skan yaratadi va navbatga qo'yadi.
+    """Creates a scan and enqueues it.
 
-    `Idempotency-Key` berilsa, shu kalit bilan skan allaqachon mavjud bo'lsa
-    yangi skan boshlanmaydi — mavjudi qaytariladi (xavfsiz qayta yuborish).
-    Egalik tasdiqlanmagan bo'lsa — 409.
+    If `Idempotency-Key` is given and a scan with that key already exists,
+    no new scan is started — the existing one is returned (safe retry).
+    Returns 409 when ownership has not been verified.
     """
     if idempotency_key:
         existing = await scan_service.find_scan_by_idempotency_key(session, tenant, idempotency_key)
@@ -148,7 +148,7 @@ async def get_findings(
     limit: int = Query(100, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
 ) -> FindingsPage:
-    """Topilmalar: og'irlik va engine bo'yicha filtr, sahifalash, umumiy sonlar."""
+    """Findings: filter by severity and engine, pagination, totals."""
     scan = await scan_service.get_scan(session, tenant, scan_id)
     severities = _as_filter(severity)
 
@@ -169,7 +169,7 @@ async def get_findings(
 
 @router.post("/{scan_id}/cancel", response_model=ScanOut)
 async def cancel_scan(scan_id: UUID, tenant: TenantDep, session: SessionDep) -> ScanOut:
-    """Navbatdagi yoki bajarilayotgan skanni bekor qiladi."""
+    """Cancels a queued or running scan."""
     scan = await scan_service.cancel_scan(session, tenant, scan_id)
     return _to_out(scan)
 
@@ -181,7 +181,7 @@ async def diff_scan(
     session: SessionDep,
     against: UUID | None = None,
 ) -> ScanDiffOut:
-    """Joriy skan va oldingi skan orasidagi farq: yangi / hal qilindi / saqlanib qoldi."""
+    """Difference between the current scan and a previous one: new / resolved / persisting."""
     scan = await scan_service.get_scan(session, tenant, scan_id)
     diff = await scan_service.diff_scan(session, tenant, scan, against_id=against)
     return ScanDiffOut(
@@ -212,18 +212,21 @@ async def diff_scan(
 
 @router.get("/{scan_id}/report.pdf", response_class=Response)
 async def download_report(scan_id: UUID, tenant: TenantDep, session: SessionDep) -> Response:
-    """Professional PDF hisobot. Faqat tugagan skan uchun."""
+    """Professional PDF report. Completed scans only."""
     scan = await scan_service.get_scan(session, tenant, scan_id)
     if scan.status != ScanStatus.done:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Skan hali tugamagan (holat: {scan.status}). Hisobot keyin tayyor bo'ladi.",
+            detail=(
+                f"Scan has not finished yet (status: {scan.status}). "
+                "The report will be ready afterwards."
+            ),
         )
 
     from ...report import render_pdf
 
     ctx = await scan_service.build_report_context(session, tenant, scan)
-    # WeasyPrint CPU-bound va sekin — event loop'ni bloklamaymiz.
+    # WeasyPrint is CPU-bound and slow — do not block the event loop.
     pdf = await asyncio.to_thread(render_pdf, ctx)
     filename = f"sins-report-{str(scan.id)[:8]}.pdf"
     return Response(

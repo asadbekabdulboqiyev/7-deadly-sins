@@ -21,7 +21,7 @@
       "dedup_key": "a1",
       "sub_id": null,
       "remediation": {
-        "summary": "log4j-core ni 2.17.1 ga yangilang",
+        "summary": "Upgrade log4j-core to 2.17.1",
         "steps": [
           "log4j-core@2.14.1 -> log4j-core@2.17.1",
           "Vaqtinchalik: -Dlog4j2.formatMsgNoLookups=true"
@@ -42,8 +42,8 @@
       "source_tools": ["nuclei"],
       "dedup_key": "b1",
       "remediation": {
-        "summary": "Parametrlangan so'rovlarga o'ting",
-        "steps": ["ORM yoki parametrlangan query ishlating", "WAF qoidasini yoqing"],
+        "summary": "Use parameterized queries",
+        "steps": ["Use ORM parameterized queries", "Enable a WAF rule"],
         "fixed_version": null,
         "references": []
       }
@@ -60,7 +60,7 @@
       "source_tools": ["osv"],
       "dedup_key": "c1",
       "remediation": {
-        "summary": "lodash ni 4.17.21 ga yangilang",
+        "summary": "Upgrade lodash to 4.17.21",
         "steps": ["lodash@4.17.15 -> lodash@4.17.21"],
         "fixed_version": "4.17.21",
         "references": []
@@ -68,7 +68,7 @@
     },
     {
       "category": "tls",
-      "title": "TLS 1.0 va 1.1 yoqilgan",
+      "title": "TLS 1.0 and 1.1 enabled",
       "severity": "medium",
       "cvss": null,
       "cve": [],

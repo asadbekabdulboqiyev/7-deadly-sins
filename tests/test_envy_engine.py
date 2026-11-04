@@ -1,8 +1,8 @@
-"""Envy adapteri: real sslyze 6.x JSON sxemasi bo'yicha parser testlari.
+"""Envy adapter tests - for the real sslyze 6.x JSON schema parser.
 
-Fixture'lar qo'lda yozilgan HAQIQIY sxema nusxasi (sslyze `--json_out -`
-chiqishidan olingan): `server_scan_results[].scan_result.<plugin>.result`.
-Sanani `now` ga nisbatan hisoblaymiz — testlar vaqt o'tishi bilan buzilmaydi.
+The fixtures are hand-written real schema samples (from sslyze `--json_out -`
+output): `server_scan_results[].scan_result.<plugin>.result`.
+We compute from `now` - the tests must not break as time passes.
 """
 
 from __future__ import annotations

@@ -1,13 +1,13 @@
-"""Sin 2 — Greed: zaiflik skanerlash.
+"""Greed: vulnerability scanning.
 
-Nega nuclei:
-  - 10 000+ tayyor template — siz hech qanday payload yozmaysiz
-  - `-jsonl` barqaror mashina o'qiydigan format
-  - nondestructive detection (exploit validation ham template ichida)
+Why nuclei:
+  - 10,000+ ready-made templates — you write no payloads
+  - `-jsonl` is a stable machine-readable format
+  - nondestructive detection (exploit validation is also a template)
 
-Nega nmap --script vulners EMAS:
-  - pullik API key talab qiladi
-  - service version -> CVE mapping false positive darajasi juda yuqori
+Why NOT nmap --script vulners:
+  - requires a paid API key
+  - service version -> CVE mapping has a very high false-positive rate
 """
 
 from __future__ import annotations
@@ -36,11 +36,11 @@ class NucleiAdapter:
         return which("nuclei") is not None
 
     def applies_to(self, target: str) -> bool:
-        """Nuclei tarmoq nishonlari bilan ishlaydi; lokal papka unga ma'nosiz."""
+        """Nuclei works with network targets; a local directory is meaningless to it."""
         try:
             kind = classify_target(target)
         except InvalidTarget:
-            return True  # formatni adapter emas, tool'ning o'zi baholaydi
+            return True  # let the tool itself judge the format, not the adapter
         return kind in {"domain", "url", "ip"}
 
     def run(self, ctx: ScanContext) -> list[FindingContract]:
@@ -50,7 +50,7 @@ class NucleiAdapter:
             ctx.target,
             "-jsonl",
             "-silent",
-            "-no-interactsh",  # tashqi OAST serverga bog'lanmasin
+            "-no-interactsh",  # do not connect to an external OAST server
             "-disable-update-check",
             "-severity",
             ",".join(ctx.severities),
@@ -72,7 +72,7 @@ class NucleiAdapter:
         try:
             result = run_tool(argv, timeout=ctx.timeout)
         except ToolNotFound as exc:
-            log.warning("nuclei topilmadi: %s", exc)
+            log.warning("nuclei not found: %s", exc)
             return []
 
         return self.parse(result, ctx.target)
@@ -90,7 +90,7 @@ class NucleiAdapter:
             except json.JSONDecodeError:
                 continue
             if not _is_finding(payload):
-                continue  # -stats-json satrlari
+                continue  # -stats-json lines
             finding = self._to_finding(payload, target)
             if finding:
                 findings.append(finding)
@@ -109,8 +109,8 @@ class NucleiAdapter:
         severity = Severity(raw_sev) if raw_sev in _SEVERITIES else severity_from_cvss(cvss)
 
         base_title = info.get("name") or template_id
-        # Bir template bir nechta matcher bersa — sarlavha aniq bo'lishi kerak,
-        # aks holda hisobotda 10 ta bir xil qator ko'rinadi.
+        # When one template yields several matchers, the title must be specific,
+        # otherwise the report shows 10 identical rows.
         title = f"{base_title}: {matcher}" if matcher else base_title
 
         return FindingContract(

@@ -1,8 +1,8 @@
-"""Test muhiti sozlamalari.
+"""Test environment settings.
 
-MUHIM: testlar ALOHIDA bazada ishlaydi (`sins_test`).
-Baza nomi `_test` bilan tugamasa — testlar umuman ishga tushmaydi,
-shunda tasodifan prod bazani o'chirib yuborish mumkin emas.
+IMPORTANT: tests run against the dedicated DB (`sins_test`).
+If the DB name does not end with `_test`, tests will not run against the real DB,
+which could accidentally delete the production DB.
 """
 
 from __future__ import annotations
@@ -16,13 +16,13 @@ _TEST_DB = os.environ.get("SINS_TEST_DATABASE_URL") or (
 _db_name = _TEST_DB.rsplit("/", 1)[-1].split("?")[0]
 if not _db_name.endswith("_test"):
     raise RuntimeError(
-        f"Test bazasi nomi '_test' bilan tugashi shart, aks holda testlar "
-        f"haqiqiy bazani o'chirib yuboradi: {_TEST_DB}"
+        f"The test database name must end with `_test`, tests must not touch "
+        f"the real database: {_TEST_DB}"
     )
 
 os.environ["SINS_DATABASE_URL"] = _TEST_DB
 os.environ["SINS_REDIS_URL"] = "redis://localhost:6379/15"
-# Testlar rate limitga urilib qolmasin va retry kutmasin.
+# Tests must not be rate-limited and must not retry.
 os.environ.setdefault("SINS_RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("SINS_ADAPTER_MAX_ATTEMPTS", "1")
 
@@ -36,7 +36,7 @@ from sins.services import scan_service  # noqa: E402
 
 
 async def _ensure_database() -> None:
-    """Baza mavjud bo'lmasa yaratadi — testlar `createdb` ni talab qilmaydi."""
+    """Create the DB if it does not exist - tests do not need `createdb`."""
     dsn = _TEST_DB.replace("postgresql+asyncpg://", "postgresql://")
     admin_dsn = dsn.rsplit("/", 1)[0] + "/postgres"
     conn = await asyncpg.connect(admin_dsn)
@@ -65,7 +65,7 @@ async def session():
 
 @pytest_asyncio.fixture
 async def tenant(session):
-    """Yangi mijoz + uning API kaliti."""
+    """Create a new client and its API key."""
     return await scan_service.create_tenant(session, "Test Mijoz")
 
 

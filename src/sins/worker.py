@@ -1,6 +1,6 @@
-"""ARQ worker — skan job'lari va rejali tozalash.
+"""ARQ worker — scan jobs and scheduled cleanup.
 
-Ishga tushirish: `arq sins.worker.WorkerSettings` (yoki `sins worker`).
+Run with: `arq sins.worker.WorkerSettings` (or `sins worker`).
 """
 
 from __future__ import annotations
@@ -21,35 +21,35 @@ log = logging.getLogger(__name__)
 
 
 async def run_scan(ctx: dict[str, Any], scan_id: str) -> str:
-    """ARQ job: skanni bajaradi va holatini DB'ga yozadi."""
-    log.info("run_scan boshlandi", extra={"event": "job.start", "scan_id": scan_id})
+    """ARQ job: runs the scan and persists its state to the DB."""
+    log.info("run_scan started", extra={"event": "job.start", "scan_id": scan_id})
     try:
         parsed = uuid.UUID(scan_id)
     except ValueError:
-        log.error("run_scan: noto'g'ri scan_id %r", scan_id)
+        log.error("run_scan: invalid scan_id %r", scan_id)
         return "invalid_id"
 
     await scan_service.execute_scan(parsed)
-    log.info("run_scan tugadi", extra={"event": "job.done", "scan_id": scan_id})
+    log.info("run_scan finished", extra={"event": "job.done", "scan_id": scan_id})
     return "done"
 
 
 async def prune_old_scans(ctx: dict[str, Any]) -> str:
-    """Kunlik cron: saqlash siyosatidan eski skanlarni o'chiradi."""
+    """Daily cron: deletes scans older than the retention policy."""
     days = get_settings().retention_days
     async with get_sessionmaker()() as session:
         scans, findings = await scan_service.prune_scans(
             session, older_than_days=days, dry_run=False
         )
     log.info(
-        "cron prune tugadi",
+        "cron prune finished",
         extra={"event": "cron.prune", "scans": scans, "findings": findings, "days": days},
     )
     return f"pruned scans={scans} findings={findings}"
 
 
 async def refresh_metrics(ctx: dict[str, Any]) -> None:
-    """Har daqiqada navbat va skan holatlari bo'yicha gauge'ni yangilaydi."""
+    """Refreshes queue and scan-state gauges every minute."""
     from sqlalchemy import func, select
 
     from .models import Scan, ScanStatus
@@ -65,14 +65,14 @@ async def refresh_metrics(ctx: dict[str, Any]) -> None:
 async def startup(ctx: dict[str, Any]) -> None:
     configure_logging()
     METRICS.inc("sins_worker_starts_total")
-    log.info("worker ishga tushdi", extra={"event": "worker.start"})
+    log.info("worker started", extra={"event": "worker.start"})
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
     from .db import get_engine
 
     await get_engine().dispose()
-    log.info("worker to'xtadi", extra={"event": "worker.stop"})
+    log.info("worker stopped", extra={"event": "worker.stop"})
 
 
 class WorkerSettings:
@@ -83,11 +83,11 @@ class WorkerSettings:
     ]
     on_startup = startup
     on_shutdown = shutdown
-    # Skanlar og'ir va tashqi tool'larga tayanadi — bir vaqtda 2 ta yetarli.
+    # Scans are heavy and depend on external tools — 2 concurrent jobs is enough.
     max_jobs = 2
     job_timeout = 1800
     keep_result = 3600
-    # Job ikki marta yiqilsa qayta urinilmaydi: tashqi tool nosozligi
-    # odatda takrorlash bilan tuzalmaydi va navbatni band qiladi.
+    # If a job fails twice it is not retried: external tool failures
+    # usually are not fixed by retrying and only tie up the queue.
     max_tries = 2
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

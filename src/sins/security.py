@@ -1,7 +1,7 @@
-"""API kalitlari va boshqa maxfiy qiymatlar.
+"""API keys and other secret values.
 
-Qoida: API kalit bazada OCHIQ saqlanmaydi. Faqat SHA-256 hash.
-Kalit foydalanuvchiga bir marta ko'rsatiladi (yaratilganda).
+Rule: API keys are NEVER stored in plaintext in the database. Only a SHA-256 hash.
+The key is shown to the user exactly once (at creation time).
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import hmac
 import secrets
 
 API_KEY_PREFIX = "sins_"
-_PREFIX_LEN = 12  # foydalanuvchiga ko'rsatiladigan qism: "sins_ab12cd3"
+_PREFIX_LEN = 12  # user-visible prefix: "sins_ab12cd3"
 
 
 def generate_api_key() -> str:
@@ -19,7 +19,7 @@ def generate_api_key() -> str:
 
 
 def hash_api_key(raw: str) -> str:
-    """Tez qidiruv uchun SHA-256 (kalit 256 bit entropy — brute-force mumkin emas)."""
+    """SHA-256 for fast lookup (256-bit key entropy — brute force is infeasible)."""
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

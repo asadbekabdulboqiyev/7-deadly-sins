@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 #
-# SINS API + worker uchun yagona obraz.
-# Og'ir tizim bog'liqliklari: WeasyPrint (PDF) uchun pango/cairo.
-# nuclei va osv-scanner obrazga kirmaydi — ular alohida o'rnatiladi va
-# konteynerga mount qilinadi yoki `PATH`da bo'lishi kerak (docs/RUNBOOK.md).
+# Single image for the SINS API + worker.
+# Heavy system dependencies for WeasyPrint (PDF): pango/cairo.
+# nuclei and osv-scanner are excluded from the image — they are installed
+# separately and must be mounted into the container or available on `PATH`
 
 FROM python:3.13-slim AS builder
 

@@ -1,4 +1,4 @@
-"""Ma'lumotlar bazasi ulanishi (SQLAlchemy 2.0 async + asyncpg)."""
+"""Database connection (SQLAlchemy 2.0 async + asyncpg)."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 async def create_all() -> None:
-    """Faqat dev uchun. Production'da Alembic ishlatiladi."""
+    """Dev only. Production uses Alembic."""
     async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

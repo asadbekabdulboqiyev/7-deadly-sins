@@ -1,4 +1,4 @@
-"""Skan xizmati: egalik darvozasi, tenant izolyatsiyasi, natijalarni saqlash."""
+"""Scan service: ownership gate, tenant isolation, result persistence."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ async def test_lab_target_is_auto_verified(session, tenant) -> None:
 
     scan = await scan_service.create_scan(session, owner, target.id)
     assert scan.status == ScanStatus.pending
-    assert scan.engines == ["nuclei", "osv"]
+    assert scan.engines == ["nuclei", "osv", "pride", "envy", "lust", "gluttony", "wrath"]
 
 
 async def test_create_target_is_idempotent(session, tenant) -> None:
@@ -94,7 +94,7 @@ async def test_execute_scan_persists_findings(monkeypatch, session, tenant) -> N
     scan_id = scan.id
     await scan_service.execute_scan(scan_id)
 
-    # Natijani YANGI sessiyada o'qiymiz — bu worker yozganini haqiqatan tekshiradi.
+    # Read the results from a NEW session - this verifies the worker wrote them.
     async with get_sessionmaker()() as reader:
         fresh = await reader.get(Scan, scan_id)
         assert fresh is not None
@@ -102,22 +102,30 @@ async def test_execute_scan_persists_findings(monkeypatch, session, tenant) -> N
         assert fresh.progress == 100
         assert fresh.current_engine is None
         assert fresh.finished_at is not None
-        assert [e["name"] for e in fresh.engine_stats] == ["nuclei", "osv"]
+        assert [e["name"] for e in fresh.engine_stats] == [
+            "nuclei",
+            "osv",
+            "pride",
+            "envy",
+            "lust",
+            "gluttony",
+            "wrath",
+        ]
 
         rows = list(await reader.scalars(select(Finding).where(Finding.scan_id == scan_id)))
         assert len(rows) == 3
         assert {r.dedup_key for r in rows} == {"k1", "k2", "k3"}
-        # Remediation JSONB sifatida saqlanadi va qayta o'qiladi
+        # Remediation is stored as JSONB and re-read.
         log4j = next(r for r in rows if r.dedup_key == "k1")
         assert log4j.remediation["fixed_version"] == "2.17.1"
         assert log4j.severity == Severity.critical
 
-        # Hisobot konteksti DB'dagi natijalardan yig'iladi
+        # Report context is built from the DB findings.
         ctx = await scan_service.build_report_context(reader, owner, fresh)
     assert ctx["total_findings"] == 3
     assert ctx["risk_score"] > 0
     assert ctx["findings"][0].severity is Severity.critical
-    assert ctx["engine_names"] == "nuclei, osv"
+    assert ctx["engine_names"] == "nuclei, osv, pride, envy, lust, gluttony, wrath"
 
 
 async def test_execute_scan_is_idempotent(monkeypatch, session, tenant) -> None:
@@ -137,7 +145,7 @@ async def test_execute_scan_is_idempotent(monkeypatch, session, tenant) -> None:
 async def test_scan_blocked_when_ownership_lost(monkeypatch, session, tenant) -> None:
     owner, _ = tenant
     target = await scan_service.create_target(session, owner, "example.com")
-    # Egalik bir marta tasdiqlangan, lekin 60 kun oldin (qayta tekshiruv muddati o'tgan)
+    # Ownership was verified once, but the re-check window expired 60 days later
     target.verified_at = utcnow() - timedelta(days=60)
     target.verify_method = "dns"
     await session.commit()
@@ -156,7 +164,7 @@ async def test_scan_blocked_when_ownership_lost(monkeypatch, session, tenant) ->
     fresh = await session.get(Scan, scan_id)
     assert fresh is not None
     assert fresh.status == ScanStatus.blocked
-    assert "bloklandi" in (fresh.error or "")
+    assert "blocked" in (fresh.error or "").lower()
 
     rows = list(await session.scalars(select(Finding).where(Finding.scan_id == scan_id)))
     assert rows == []

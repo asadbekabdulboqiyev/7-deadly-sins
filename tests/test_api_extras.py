@@ -28,7 +28,7 @@ async def _wait_done(client, api_key: str, scan_id: str) -> dict:
         if resp.json()["status"] in {"done", "failed"}:
             return resp.json()
         await asyncio.sleep(0.02)
-    raise AssertionError("skan tugamadi")  # pragma: no cover
+    raise AssertionError("scan did not finish")  # pragma: no cover
 
 
 async def _done_scan(client, api_key: str, value: str = LOCAL) -> dict:
@@ -39,7 +39,7 @@ async def _done_scan(client, api_key: str, value: str = LOCAL) -> dict:
 
 
 def _stall(monkeypatch) -> None:
-    """Inline bajarishni to'xtatadi — skan `pending` holatida qoladi."""
+    """Wait for inline execution - the scan stays in the `pending` state."""
 
     async def _never(_scan_id) -> None:
         return None
@@ -93,7 +93,7 @@ async def test_different_idempotency_keys_create_separate_scans(
 
 
 # ---------------------------------------------------------------------------
-# Topilmalar: sahifalash, filtrlar, sonlar
+# Findings: pagination, filters, counts
 # ---------------------------------------------------------------------------
 
 
@@ -167,7 +167,7 @@ async def test_scans_reject_zero_limit(client, tenant) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Skanlar ro'yxati: filtr va sahifalash
+# Scans list: filters and pagination
 # ---------------------------------------------------------------------------
 
 

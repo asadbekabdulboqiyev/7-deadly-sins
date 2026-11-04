@@ -30,11 +30,11 @@ class _FlakyAdapter:
     def run(self, ctx) -> list[FindingContract]:
         self.calls += 1
         if self.calls <= self.failures:
-            raise self.exc_type("vaqtincha yiqildi")
+            raise self.exc_type("temporary failure")
         return [
             FindingContract(
                 category=self.category,
-                title="retry topilmasi",
+                title="retry finding",
                 severity=Severity.low,
                 location=ctx.target,
                 dedup_key="retry-1",
@@ -44,7 +44,7 @@ class _FlakyAdapter:
 
 
 class ToolNotFound(RuntimeError):
-    """Nom bo'yicha aniqlanadigan, qayta urinilmaydigan xato."""
+    """Tool not found error — never retried."""
 
 
 @pytest.fixture

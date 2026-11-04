@@ -1,3 +1,3 @@
-from . import scan_service
+from . import drift_service, scan_service
 
-__all__ = ["scan_service"]
+__all__ = ["drift_service", "scan_service"]

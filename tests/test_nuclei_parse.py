@@ -15,14 +15,14 @@ def _result() -> RunResult:
 
 def test_parses_findings_and_skips_stats() -> None:
     findings = NucleiAdapter().parse(_result(), "http://localhost:8099")
-    assert len(findings) == 3, "stats satri topilma sifatida qabul qilinmasligi kerak"
+    assert len(findings) == 3, "the stats row must not be treated as a finding"
 
 
 def test_critical_cve_is_normalized() -> None:
     findings = NucleiAdapter().parse(_result(), "http://localhost:8099")
     log4j = next(f for f in findings if "Log4j" in f.title)
     assert log4j.severity is Severity.critical
-    assert log4j.cve == ["CVE-2021-44228"], "CVE ID katta harfga keltirilishi kerak"
+    assert log4j.cve == ["CVE-2021-44228"], "CVE ID must be uppercase"
     assert log4j.cvss == 10.0
     assert log4j.category is Category.vuln
     assert log4j.source_tools == ["nuclei"]

@@ -8,7 +8,7 @@ from sins.ratelimit import TokenBucketLimiter
 
 
 class _Clock:
-    """Boshqariladigan monotonik vaqt — real `sleep` kerak emas."""
+    """Schedulable monotonic clock - does not need a real `sleep`."""
 
     def __init__(self) -> None:
         self.now = 1000.0

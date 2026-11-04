@@ -1,8 +1,8 @@
-"""Pride adapteri: subfinder/naabu/httpx real JSONL chiqishi bo'yicha testlar.
+"""Pride adapter tests - for the real JSONL output of subfinder/naabu/httpx.
 
-Formatlar mahalliy tool'lar bilan tekshirilgan (subfinder v2.16, naabu v2.16,
-httpx v1.6): naabu har bir port uchun alohida JSON satr yozadi, `ports`
-massivi emas.
+The formats were verified against the local tools (subfinder v2.16, naabu v2.16,
+httpx v1.6): naabu writes one JSON line per port, `ports`
+does not exist.
 """
 
 from __future__ import annotations
@@ -153,7 +153,7 @@ def test_alive_findings_skip_url_without_status() -> None:
 
 
 class _FakeTools:
-    """run_tool o'rniga: har tool uchun oldindan tayyorlangan chiqish."""
+    """Instead of run_tool: pre-made output for each tool."""
 
     def __init__(self) -> None:
         self.calls: list[list[str]] = []

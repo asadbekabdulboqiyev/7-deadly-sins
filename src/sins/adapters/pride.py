@@ -1,19 +1,19 @@
-"""Sin 1 — Pride: hujum yuzasini xaritalash (subfinder + naabu + httpx).
+"""Pride: attack surface mapping (subfinder + naabu + httpx).
 
-Bosqichlar (har biri alohida subprocess, shell=False):
-  1. subfinder -d <domain> -json -silent   → subdomenlar (faqat domen uchun)
-  2. naabu -list hosts.txt -json -silent   → ochiq TCP portlar
-  3. httpx -l hosts.txt -ports ... -json   → jonli HTTP(S) xizmatlar
+Stages (each a separate subprocess, shell=False):
+  1. subfinder -d <domain> -json -silent   → subdomains (domains only)
+  2. naabu -list hosts.txt -json -silent   → open TCP ports
+  3. httpx -l hosts.txt -ports ... -json   → live HTTP(S) services
 
-Nega shunday:
-  - Uchta tool uchta aniq ishni qiladi; biz ularni faqat bog'laymiz.
-  - Har bosqich best-effort: tool yo'q yoki yiqilsa, qolgan bosqichlar
-    ishlashda davom etadi. Bitta nosozlik butun skanni to'xtatmaydi.
-  - Naabu chiqishi har bir port uchun alohida JSON satr (JSONL), massiv emas.
-  - Httpx'ga portlar `-ports` bilan beriladi — aks holda 8099 kabi
-    nostandart portlar umuman tekshirilmaydi.
+Why this way:
+  - Three tools doing three well-defined jobs; we only wire them together.
+  - Every stage is best-effort: if a tool is missing or fails, the remaining
+    stages keep running. One failure never stops the whole scan.
+  - Naabu output is one JSON line per port (JSONL), not an array.
+  - Ports are passed to httpx via `-ports` — otherwise non-standard ports
+    such as 8099 are never checked.
 
-applies_to: domen | URL | IP. Lokal papka (osv-scanner) uchun mos emas.
+applies_to: domain | URL | IP. Not applicable to local directories (osv-scanner).
 category: exposure.
 """
 
@@ -36,16 +36,16 @@ from .base import ScanContext
 
 log = logging.getLogger(__name__)
 
-# Bitta skanda tekshiriladigan maksimal host soni (subdomen portlashi).
+# Maximum number of hosts checked in one scan (subdomain expansion).
 MAX_HOSTS = 200
-# httpx'ga beriladigan maksimal port soni.
+# Maximum number of ports passed to httpx.
 MAX_PORTS = 64
 
 _HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9._-]{0,251}[a-z0-9])?$")
 
-# PATH'dagi birinchi `httpx` ProjectDiscovery'niki bo'lmasligi mumkin: Python
-# `httpx` paketi venv ichiga o'z CLI'sini qo'yadi va loyihaniki soyada qoladi.
-# Shu sababli tool'lar aniq tekshiriladi va zaxira papkalar ko'riladi.
+# The first `httpx` on PATH may not be ProjectDiscovery's: the Python
+# `httpx` package installs its own CLI into the venv and shadows the real one.
+# That is why tools are verified explicitly and fallback directories are checked.
 _TOOL_ENV = {
     "subfinder": "SINS_SUBFINDER_BIN",
     "naabu": "SINS_NAABU_BIN",
@@ -53,7 +53,7 @@ _TOOL_ENV = {
 }
 _FALLBACK_BIN_DIRS = ("~/go/bin", "/usr/local/bin", "/opt/homebrew/bin", "~/.local/bin")
 
-# Port -> (xizmat nomi, severity). Ro'yxatda yo'q port — low.
+# Port -> (service name, severity). A port not in the list is low.
 _PORT_RISK: dict[int, tuple[str, Severity]] = {
     21: ("FTP", Severity.medium),
     22: ("SSH", Severity.medium),
@@ -87,7 +87,7 @@ class PrideAdapter:
     sin: ClassVar[str] = "Pride"
 
     def available(self) -> bool:
-        # Kamida bitta tool bo'lsa adapter ishlaydi — bosqichlar best-effort.
+        # The adapter works when at least one tool exists — stages are best-effort.
         return any(_resolve_tool(tool) for tool in ("subfinder", "naabu", "httpx"))
 
     def applies_to(self, target: str) -> bool:
@@ -103,7 +103,7 @@ class PrideAdapter:
         kind = classify_target(ctx.target)
         host = extract_host(ctx.target)
         if not host:
-            log.warning("pride: nishondan host ajratib bo'lmadi: %r", ctx.target)
+            log.warning("pride: could not extract host from target: %r", ctx.target)
             return []
 
         hosts = self.enumerate_hosts(host, kind, ctx)
@@ -115,7 +115,7 @@ class PrideAdapter:
         return _dedupe(findings)
 
     def enumerate_hosts(self, host: str, kind: str, ctx: ScanContext) -> list[str]:
-        """Domen bo'lsa subfinder bilan kengaytiradi, aks holda faqat host."""
+        """Expands a domain with subfinder, otherwise returns the host alone."""
         hosts = [host]
         if kind == "domain":
             hosts += self._subfinder(host, ctx)
@@ -127,9 +127,9 @@ class PrideAdapter:
         try:
             return self._naabu(hosts, ctx)
         except ToolNotFound as exc:
-            log.warning("naabu topilmadi: %s", exc)
-        except Exception as exc:  # noqa: BLE001 — best-effort bosqich
-            log.warning("naabu nosoz: %s", exc)
+            log.warning("naabu not found: %s", exc)
+        except Exception as exc:  # noqa: BLE001 — best-effort stage
+            log.warning("naabu failed: %s", exc)
         return []
 
     def probe_http(
@@ -143,9 +143,9 @@ class PrideAdapter:
         try:
             return self._httpx(hosts, ports, ctx)
         except ToolNotFound as exc:
-            log.warning("httpx topilmadi: %s", exc)
-        except Exception as exc:  # noqa: BLE001 — best-effort bosqich
-            log.warning("httpx nosoz: %s", exc)
+            log.warning("httpx not found: %s", exc)
+        except Exception as exc:  # noqa: BLE001 — best-effort stage
+            log.warning("httpx failed: %s", exc)
         return []
 
     # -- subfinder -------------------------------------------------------
@@ -290,11 +290,11 @@ class PrideAdapter:
         return findings
 
 
-# -- parsers (pure, alohida testlanadi) ----------------------------------
+# -- parsers (pure, tested separately) ----------------------------------
 
 
 def parse_subfinder(stdout: str) -> list[str]:
-    """subfinder `-json` chiqishi JSONL: `{"host": "a.example.com", ...}`."""
+    """subfinder `-json` output is JSONL: `{"host": "a.example.com", ...}`."""
     hosts: list[str] = []
     for obj in _iter_json(stdout):
         host = obj.get("host") or obj.get("subdomain") or obj.get("input")
@@ -304,7 +304,7 @@ def parse_subfinder(stdout: str) -> list[str]:
 
 
 def parse_naabu(stdout: str) -> list[dict[str, Any]]:
-    """naabu `-json` chiqishi JSONL: `{"ip": ..., "port": 443, "protocol": "tcp"}`."""
+    """naabu `-json` output is JSONL: `{"ip": ..., "port": 443, "protocol": "tcp"}`."""
     ports: list[dict[str, Any]] = []
     seen: set[tuple[str, int, str]] = set()
     for obj in _iter_json(stdout):
@@ -333,7 +333,7 @@ def parse_naabu(stdout: str) -> list[dict[str, Any]]:
 
 
 def parse_httpx(stdout: str) -> list[dict[str, Any]]:
-    """httpx `-json` chiqishi JSONL: `{"url": ..., "status_code": 200, ...}`."""
+    """httpx `-json` output is JSONL: `{"url": ..., "status_code": 200, ...}`."""
     alive: list[dict[str, Any]] = []
     seen: set[str] = set()
     for obj in _iter_json(stdout):
@@ -367,10 +367,10 @@ def parse_httpx(stdout: str) -> list[dict[str, Any]]:
 
 
 def _resolve_tool(name: str) -> str | None:
-    """ProjectDiscovery tool'ini topadi; venv soyasini chetlab o'tadi.
+    """Locates a ProjectDiscovery tool, bypassing the venv shadow.
 
-    Tartib: `SINS_<TOOL>_BIN` -> PATH -> zaxira papkalar. Faqat `-version`
-    chiqishida "projectdiscovery" bo'lgan binary haqiqiy deb hisoblanadi.
+    Order: `SINS_<TOOL>_BIN` -> PATH -> fallback directories. A binary counts
+    as genuine only when its `-version` output contains "projectdiscovery".
     """
     override = os.environ.get(_TOOL_ENV[name], "").strip()
     if override:
@@ -405,7 +405,7 @@ def _is_projectdiscovery(path: str) -> bool:
 
 
 def _iter_json(stdout: str):
-    """JSONL yoki JSON massiv — ikkalasini ham obyektlar bo'ylab yuradi."""
+    """JSONL or a JSON array — iterates over objects in both cases."""
     text = stdout.strip()
     if not text:
         return
@@ -413,7 +413,7 @@ def _iter_json(stdout: str):
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            log.warning("JSON massiv parse qilinmadi")
+            log.warning("failed to parse JSON array")
             return
         if isinstance(payload, list):
             for item in payload:
@@ -434,7 +434,7 @@ def _iter_json(stdout: str):
 
 
 def _clean_hosts(hosts: list[str]) -> list[str]:
-    """Dublikatlarni olib tashlaydi va argv/fayl uchun xavfsiz nomlarni qoldiradi."""
+    """Removes duplicates and keeps names safe for argv/files."""
     out: list[str] = []
     seen: set[str] = set()
     for raw in hosts:
@@ -491,39 +491,42 @@ def _port_remediation(port: int, service: str) -> Remediation:
     if port in {3306, 5432, 1433, 1521, 27017, 6379, 9200, 11211}:
         return Remediation(
             summary=(
-                f"{service} porti tashqi tarmoqqa ochiq — ma'lumotlar bazasi "
-                "to'g'ridan-to'g'ri hujumga ochiq."
+                f"{service} port is exposed to the external network — the database "
+                "is directly reachable for attack."
             ),
             steps=[
-                "Portni faqat ichki tarmoq/VPN manzillariga cheklang (firewall).",
-                "Bazani autentifikatsiya va TLS bilan sozlang.",
-                "Ochiq qolishi shart bo'lsa, kuchli parol va IP allowlist qo'llang.",
+                "Restrict the port to internal network/VPN addresses (firewall).",
+                "Configure the database with authentication and TLS.",
+                "If it must stay open, use a strong password and an IP allowlist.",
             ],
             references=["https://owasp.org/www-project-top-ten/"],
         )
     if port == 3389:
         return Remediation(
-            summary="RDP tashqi tarmoqqa ochiq — brute-force va ransomware uchun asosiy nishon.",
+            summary=(
+                "RDP is exposed to the external network - a prime target for brute-force "
+                "and ransomware."
+            ),
             steps=[
-                "RDP'ni VPN yoki bastion host orqali cheklang.",
-                "NLA yoqing va MFA qo'shing.",
-                "Internetdan to'g'ridan-to'g'ri kirishni yoping.",
+                "Restrict RDP through a VPN or bastion host.",
+                "Enable NLA and add MFA.",
+                "Close direct internet access.",
             ],
         )
     if port == 23:
         return Remediation(
-            summary="Telnet shifrlanmagan protokol — login ma'lumotlari ochiq matnda ketadi.",
+            summary="Telnet is an unencrypted protocol — login credentials travel in plain text.",
             steps=[
-                "Telnet'ni o'chiring va SSH'ga o'ting.",
-                "Qurilma konsoliga faqat ichki tarmoqdan ruxsat bering.",
+                "Disable Telnet and switch to SSH.",
+                "Allow device console access only from the internal network.",
             ],
         )
     return Remediation(
-        summary=f"{service} xizmati {port}-portda tashqi tarmoqqa ochiq.",
+        summary=f"{service} service is exposed on port {port} to the external network.",
         steps=[
-            "Port haqiqatan kerakligini tekshiring; kerak bo'lmasa yoping.",
-            "Kerak bo'lsa, manba IP'larni firewall bilan cheklang.",
-            "Xizmatni eng so'nggi versiyaga yangilang.",
+            "Verify the port is actually needed; close it if not.",
+            "If needed, restrict source IPs with a firewall.",
+            "Upgrade the service to the latest version.",
         ],
     )
 
@@ -531,14 +534,14 @@ def _port_remediation(port: int, service: str) -> Remediation:
 def _remediation(code: str) -> Remediation:
     if code == "alive":
         return Remediation(
-            summary="HTTP xizmati tashqi tarmoqdan javob bermoqda.",
+            summary="An HTTP service is responding from the external network.",
             steps=[
-                "Bu xizmat ommaviy bo'lishi shartligini tasdiqlang.",
-                "Kerak bo'lmasa, portni yoping yoki autentifikatsiya qo'shing.",
-                "Xizmat versiyasini yangilab, xavfsizlik sarlavhalarini sozlang.",
+                "Confirm this service is meant to be public.",
+                "If not, close the port or add authentication.",
+                "Upgrade the service version and configure security headers.",
             ],
         )
-    raise ValueError(f"noma'lum remediation kodi: {code}")
+    raise ValueError(f"unknown remediation code: {code}")
 
 
 __all__ = ["PrideAdapter", "parse_httpx", "parse_naabu", "parse_subfinder"]

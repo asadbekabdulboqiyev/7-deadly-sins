@@ -1,6 +1,6 @@
-"""FastAPI ilovasi.
+"""FastAPI application.
 
-Ishga tushirish: `sins serve` yoki `uvicorn sins.api.main:app`.
+Run with: `sins serve` or `uvicorn sins.api.main:app`.
 Observability: `GET /metrics` (Prometheus), `GET /healthz`, `GET /readyz`.
 """
 
@@ -38,10 +38,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from arq.connections import RedisSettings
 
         app.state.arq = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-        log.info("ARQ navbatiga ulandi", extra={"event": "arq.connected"})
-    except Exception:  # noqa: BLE001 — dev rejimida Redis bo'lmasligi mumkin
+        log.info("connected to the ARQ queue", extra={"event": "arq.connected"})
+    except Exception:  # noqa: BLE001 — Redis may be absent in dev mode
         log.warning(
-            "Redis mavjud emas — skanlar API jarayonida bajariladi (dev rejimi)",
+            "Redis is unavailable — scans run inside the API process (dev mode)",
             extra={"event": "arq.unavailable"},
         )
 
@@ -106,11 +106,11 @@ def create_app() -> FastAPI:
         description="Attack surface & vulnerability assessment platform",
         lifespan=lifespan,
     )
-    # Lifespan ishga tushmasa ham (testlar, ASGI transport) shu maydonlar mavjud bo'lsin.
+    # Keep these fields present even if lifespan does not run (tests, ASGI transport).
     app.state.arq = None
     app.state.tasks = set()
 
-    # Tartib muhim: request ID eng tashqarida, rate limit undan keyin.
+    # Order matters: request ID outermost, rate limit next.
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestContextMiddleware)
 
@@ -121,12 +121,12 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz", tags=["system"])
     async def healthz() -> dict[str, str]:
-        """Liveness — jarayon tirikmi. DB tekshirilmaydi (restart kerak emas)."""
+        """Liveness — is the process alive. The DB is not checked (no restart needed)."""
         return {"status": "ok"}
 
     @app.get("/readyz", tags=["system"])
     async def readyz() -> JSONResponse:
-        """Readiness — barcha bog'liqliklar tayyormi (trafik qabul qilish mumkinmi)."""
+        """Readiness — are all dependencies ready (can we accept traffic)."""
         checks: dict[str, str] = {}
 
         try:
@@ -143,7 +143,7 @@ def create_app() -> FastAPI:
 
     @app.get("/metrics", response_class=PlainTextResponse, tags=["system"])
     async def metrics() -> PlainTextResponse:
-        """Prometheus text formatidagi metrikalar."""
+        """Metrics in Prometheus text format."""
         return PlainTextResponse(METRICS.render(), media_type="text/plain; version=0.0.4")
 
     return app

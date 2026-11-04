@@ -1,4 +1,4 @@
-"""FastAPI dependency'lari — autentifikatsiya va DB sessiyasi."""
+"""FastAPI dependencies — authentication and DB session."""
 
 from __future__ import annotations
 
@@ -18,16 +18,16 @@ async def get_tenant(
     session: SessionDep,
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> Tenant:
-    """`X-API-Key` sarlavhasidan tenantni aniqlaydi.
+    """Resolves the tenant from the `X-API-Key` header.
 
-    Kalit bazada hash sifatida saqlanadi — ochiq matn hech qayerda yo'q.
-    Xato matni ataylab bir xil: qaysi kalit mavjudligini oshkor qilmaymiz.
+    The key is stored in the database as a hash — the plaintext exists nowhere.
+    The error message is deliberately identical: we do not reveal which keys exist.
     """
     tenant = await scan_service.get_tenant_by_key(session, x_api_key or "")
     if tenant is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API kalit noto'g'ri yoki yo'q. `X-API-Key` sarlavhasini tekshiring.",
+            detail="Invalid or missing API key. Check the `X-API-Key` header.",
             headers={"WWW-Authenticate": "X-API-Key"},
         )
     return tenant

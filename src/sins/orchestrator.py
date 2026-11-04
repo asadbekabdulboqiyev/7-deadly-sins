@@ -1,7 +1,7 @@
-"""Orkestrator — 7 ta gunohni bitta skanga yig'adi.
+"""Orchestrator — combines the 7 sins into a single scan.
 
-Muhim: bu yerda hech qanday skanerlash logikasi yo'q.
-Faqat adapterlarni chaqirish, natijalarni korrelyatsiya qilish.
+Important: there is no scanning logic here.
+Only adapter invocation and result correlation.
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ class EngineReport:
     findings: int
     duration_ms: int
     error: str | None = None
-    # Nechta urinish kerak bo'ldi (retry bo'lsa > 1).
+    # How many attempts were needed (attempts > 1 when retried).
     attempts: int = 1
-    # Nishon turi bu engine'ga mos kelmadi — ishga tushirilmadi.
+    # The target type does not apply to this engine — it was not run.
     skipped: bool = False
     skip_reason: str | None = None
 
@@ -52,7 +52,7 @@ EngineCallback = Callable[[EngineReport], Awaitable[None]]
 
 
 def _is_retryable(exc: BaseException) -> bool:
-    """Qayta urinish mantiqiy bo'ladigan xatolar."""
+    """Errors for which a retry makes sense."""
     if isinstance(exc, (FileNotFoundError, PermissionError, ValueError, TypeError)):
         return False
     if type(exc).__name__ == "ToolNotFound":
@@ -76,10 +76,10 @@ class SinsOrchestrator:
         for name in selected:
             adapter = REGISTRY.get(name)
             if adapter is None:
-                log.warning("noma'lum engine: %s — o'tkazib yuborildi", name)
+                log.warning("unknown engine: %s — skipped", name)
                 continue
             if not adapter.available():
-                log.warning("%s topilmadi — o'tkazib yuborildi", name)
+                log.warning("%s not found — skipped", name)
                 continue
             self.adapters.append(adapter)
 
@@ -91,9 +91,9 @@ class SinsOrchestrator:
         started = time.monotonic()
         report = ScanReport(target=ctx.target)
 
-        # Nishon turiga mos kelmaydigan engine'lar umuman ishga tushirilmaydi.
-        # Muhim: ular ham callback orqali xabar qilinadi — aks holda progress
-        # hech qachon 100% ga yetmaydi.
+        # Engines that do not apply to the target type are never run.
+        # Important: they are still reported via the callback — otherwise progress
+        # would never reach 100%.
         applicable: list[Adapter] = []
         for adapter in self.adapters:
             if adapter.applies_to(ctx.target):
@@ -106,15 +106,15 @@ class SinsOrchestrator:
                 findings=0,
                 duration_ms=0,
                 skipped=True,
-                skip_reason=f"'{ctx.target}' nishon turi {adapter.name} uchun mos emas",
+                skip_reason=f"target type of '{ctx.target}' does not apply to {adapter.name}",
             )
             report.engines.append(skipped)
-            log.info("%s o'tkazib yuborildi: nishon turi mos emas", adapter.name)
+            log.info("%s skipped: target type does not apply", adapter.name)
             if on_engine_done is not None:
                 try:
                     await on_engine_done(skipped)
-                except Exception:  # noqa: BLE001 — callback xatosi skanni to'xtatmasin
-                    log.exception("progress callback xatosi")
+                except Exception:  # noqa: BLE001 — callback errors must not stop the scan
+                    log.exception("progress callback error")
 
         async def _wrapped(adapter: Adapter):
             result = await asyncio.to_thread(self._run_one, adapter, ctx)
@@ -122,8 +122,8 @@ class SinsOrchestrator:
             if on_engine_done is not None:
                 try:
                     await on_engine_done(engine_report)
-                except Exception:  # noqa: BLE001 — callback xatosi skanni to'xtatmasin
-                    log.exception("progress callback xatosi")
+                except Exception:  # noqa: BLE001 — callback errors must not stop the scan
+                    log.exception("progress callback error")
             return result
 
         results = await asyncio.gather(*(_wrapped(a) for a in applicable), return_exceptions=True)
@@ -153,10 +153,10 @@ class SinsOrchestrator:
     def _run_one(
         self, adapter: Adapter, ctx: ScanContext
     ) -> tuple[EngineReport, list[FindingContract]]:
-        """Engine'ni ishga tushiradi, vaqtinchalik xatoda qayta urinadi.
+        """Runs the engine, retrying on transient errors.
 
-        Qayta urinish faqat "balki o'tadi" xatolar uchun: timeout, tarmoq,
-        resurs. `ToolNotFound` yoki noto'g'ri argument — darhol yakun.
+        Retries only for "maybe it will pass" errors: timeout, network,
+        resources. `ToolNotFound` or bad arguments — fail immediately.
         """
         settings = get_settings()
         max_attempts = max(1, settings.adapter_max_attempts)
@@ -177,13 +177,13 @@ class SinsOrchestrator:
                     ),
                     findings,
                 )
-            except Exception as exc:  # noqa: BLE001 — engine xatosi butun skanni to'xtatmasin
+            except Exception as exc:  # noqa: BLE001 — an engine error must not stop the whole scan
                 last_error = exc
                 if not _is_retryable(exc) or attempt == max_attempts:
                     break
                 delay = settings.adapter_retry_backoff_seconds * (2 ** (attempt - 1))
                 log.warning(
-                    "%s yiqildi (%s) — %.1f s dan keyin qayta urinish (%d/%d)",
+                    "%s failed (%s) — retrying in %.1f s (%d/%d)",
                     adapter.name,
                     type(exc).__name__,
                     delay,
@@ -192,7 +192,7 @@ class SinsOrchestrator:
                 )
                 time.sleep(delay)
 
-        log.error("%s ishlamadi: %s", adapter.name, last_error, exc_info=last_error)
+        log.error("%s failed: %s", adapter.name, last_error, exc_info=last_error)
         return (
             EngineReport(
                 name=adapter.name,

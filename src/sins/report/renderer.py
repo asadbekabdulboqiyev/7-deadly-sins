@@ -1,7 +1,7 @@
-"""HTML -> PDF hisobot generatori.
+"""HTML to PDF report generator.
 
-Nega WeasyPrint: bir xil HTML/CSS ni brauzerda ham, PDF da ham ko'rish mumkin.
-reportlab bilan "professional" ko'rinish yasash — azob.
+Why WeasyPrint: the same HTML/CSS can be viewed in a browser and in a PDF.
+Building it with reportlab is painful — use WeasyPrint instead.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from ..schemas import SEVERITY_ORDER, FindingContract, Severity
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
-# Severity bo'yicha risk og'irligi. Risk score 0-100 oralig'ida kesiladi.
+# Severity-based risk weight. Risk score is capped at 0-100.
 _SEVERITY_WEIGHT: dict[Severity, float] = {
     Severity.critical: 12.0,
     Severity.high: 7.0,
@@ -39,8 +39,8 @@ _SEVERITY_LABEL = {
 
 
 def _env() -> Environment:
-    # autoescape=True MAJBURIY: nishon nomi va tool chiqishi foydalanuvchi
-    # tomonidan boshqariladi. Escape bo'lmasa PDF ichiga HTML/JS inject qilinadi.
+    # autoescape=True is mandatory: the target name and tool output
+    # are applied by the user. Without it, HTML/JS injection could be embedded in the PDF.
     return Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
         autoescape=True,
@@ -50,21 +50,21 @@ def _env() -> Environment:
 
 
 def compute_risk_score(findings: list[FindingContract]) -> float:
-    """Oddiy, tushunarli ball. CVSS vektori emas — menejment uchun ko'rsatkich."""
+    """Simple, readable score. Not a CVSS vector — management-facing metric."""
     total = sum(_SEVERITY_WEIGHT[f.severity] for f in findings)
     return min(100.0, round(total, 1))
 
 
 def risk_grade(score: float) -> str:
     if score >= 70:
-        return "KRITIK"
+        return "CRITICAL"
     if score >= 40:
-        return "YUQORI"
+        return "HIGH"
     if score >= 15:
-        return "O'RTA"
+        return "MEDIUM"
     if score > 0:
-        return "PAST"
-    return "TOZA"
+        return "LOW"
+    return "NONE"
 
 
 def build_context(
@@ -122,10 +122,10 @@ def render_html(context: dict[str, Any]) -> str:
 
 
 def _ensure_macos_libs() -> None:
-    """macOS: Homebrew kutubxonalari dyld uchun ko'rinadigan bo'lishi kerak.
+    """macOS: Homebrew libraries must be visible to dyld.
 
-    Usiz `weasyprint` `libgobject-2.0-0` ni topolmay yiqiladi. Bu env
-    o'zgaruvchisi `weasyprint` import qilinishidan OLDIN qo'yilishi kifoya.
+    WeasyPrint could not find `libgobject-2.0-0`. This env
+    variable must be set before importing weasyprint.
     """
     if sys.platform != "darwin":
         return
@@ -138,7 +138,7 @@ def _ensure_macos_libs() -> None:
 
 
 def render_pdf(context: dict[str, Any]) -> bytes:
-    # Import lazy — WeasyPrint og'ir va CLI uchun har doim kerak emas.
+    # Import lazily - WeasyPrint is heavy and not needed for CLI use.
     _ensure_macos_libs()
     from weasyprint import HTML
 

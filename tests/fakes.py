@@ -1,4 +1,4 @@
-"""Testlar uchun soxta orkestrator — haqiqiy tool/tarmoq kerak emas."""
+"""Fake orchestrator for tests - no real tool or network needed."""
 
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ def sample_findings() -> list[FindingContract]:
             dedup_key="k1",
             source_tools=["nuclei"],
             remediation=Remediation(
-                summary="log4j-core ni 2.17.1 ga yangilang",
+                summary="Upgrade log4j-core to 2.17.1",
                 steps=["log4j-core@2.14.1 -> 2.17.1"],
                 fixed_version="2.17.1",
             ),
         ),
         FindingContract(
             category=Category.misconfig,
-            title="Server versiyasi oshkor qilinadi",
+            title="Server version disclosure detected",
             severity=Severity.low,
             location="example.com",
             dedup_key="k2",
@@ -46,10 +46,12 @@ def sample_findings() -> list[FindingContract]:
 
 
 class FakeOrchestrator:
-    """`SinsOrchestrator` o'rniga: adapter chaqirmaydi, natijani darhol beradi."""
+    """Instead of `SinsOrchestrator`: the adapter is not called, the result is returned directly."""
 
     def __init__(self, engines: list[str] | None = None) -> None:
-        self.engines = list(engines or ["nuclei", "osv"])
+        self.engines = list(
+            engines or ["nuclei", "osv", "pride", "envy", "lust", "gluttony", "wrath"]
+        )
         self.adapters: list[Any] = list(self.engines)
 
     async def run(self, ctx: Any, on_engine_done: Any = None) -> ScanReport:

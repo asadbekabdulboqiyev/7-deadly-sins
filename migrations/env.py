@@ -1,7 +1,7 @@
-"""Alembic muhiti.
+"""Alembic environment.
 
-Manba haqiqat — `sins.config.get_settings().database_url` (ya'ni `SINS_DATABASE_URL`).
-`alembic.ini` ichida URL yozilmaydi: secret'lar faylga tushmasin.
+Source of truth — `sins.config.get_settings().database_url` (i.e. `SINS_DATABASE_URL`).
+The URL is not written in `alembic.ini`: secrets must not end up in the file.
 """
 
 from __future__ import annotations

@@ -1,24 +1,24 @@
-"""Sin 4 — Envy: TLS/SSL konfiguratsiyasini tekshirish (sslyze adapteri).
+"""Envy: TLS/SSL configuration check (sslyze adapter).
 
-Nima ishga tushiriladi (bitta subprocess, shell=False):
+What runs (a single subprocess, shell=False):
   sslyze --json_out - --certinfo --compression --http_headers
          --sslv2 --sslv3 --tlsv1 --tlsv1_1 --heartbleed  host:port
 
-Nega sslyze:
-  - Sertifikat zanjiri, protokol versiyalari va Heartbleed'ni bitta
-    o'tishda tekshiradi; biz TLS handshake logikasini yozmaymiz.
-  - `--json_out -` barqaror, hujjatlashtirilgan mashina o'qiydigan format.
-  - sslyze 6.x da `--regular` olib tashlangan — tekshiruvlar ochiq
-    flag'lar bilan so'raladi. `--jsonfile` degan flag yo'q, `--json_out`.
+Why sslyze:
+  - Checks the certificate chain, protocol versions and Heartbleed in one
+    pass; we never implement TLS handshake logic ourselves.
+  - `--json_out -` is a stable, documented machine-readable format.
+  - sslyze 6.x dropped `--regular` — checks are requested with explicit
+    flags. There is no `--jsonfile` flag; it is `--json_out`.
 
-Chiqish shakli (sslyze 6.x):
+Output shape (sslyze 6.x):
   {"server_scan_results": [{"scan_status": "COMPLETED",
                             "server_location": {"hostname": ..., "port": ...},
                             "scan_result": {"certificate_info": {...},
                                             "ssl_3_0_cipher_suites": {...}}}]}
 
-Har bir plugin `{"status": "COMPLETED"|"NOT_SCHEDULED"|"ERROR", "result": ...}`
-ko'rinishida. `NOT_SCHEDULED` — tekshiruv so'ralmagan, uni jimgina o'tkazamiz.
+Each plugin looks like `{"status": "COMPLETED"|"NOT_SCHEDULED"|"ERROR", "result": ...}`.
+`NOT_SCHEDULED` means the check was not requested; it is skipped silently.
 """
 
 from __future__ import annotations
@@ -38,13 +38,13 @@ from .base import ScanContext
 
 log = logging.getLogger(__name__)
 
-# Sertifikat muddati shu kundan kam qolsa — ogohlantirish.
+# Warn when the certificate has fewer than this many days left.
 EXPIRY_WARNING_DAYS = 30
 
-# Zaif imzo algoritmlari (sertifikat yoki zanjirda).
+# Weak signature algorithms (certificate or chain).
 _WEAK_SIGNATURE_HASHES = {"md5", "sha1"}
 
-# Protokol versiyalari: plugin kaliti -> (ko'rsatiladigan nom, severity).
+# Protocol versions: plugin key -> (display name, severity).
 _LEGACY_PROTOCOLS: dict[str, tuple[str, Severity]] = {
     "ssl_2_0_cipher_suites": ("SSL 2.0", Severity.critical),
     "ssl_3_0_cipher_suites": ("SSL 3.0", Severity.high),
@@ -73,7 +73,7 @@ class EnvyAdapter:
         return which("sslyze") is not None
 
     def applies_to(self, target: str) -> bool:
-        """TLS faqat tarmoq nishonlariga ma'noli; lokal papkaga emas."""
+        """TLS is meaningful only for network targets, not local directories."""
         try:
             kind = classify_target(target)
         except InvalidTarget:
@@ -83,14 +83,14 @@ class EnvyAdapter:
     def run(self, ctx: ScanContext) -> list[FindingContract]:
         host, port = _split_host_port(ctx.target)
         if not host:
-            log.warning("envy: nishondan host ajratib bo'lmadi: %r", ctx.target)
+            log.warning("envy: could not extract host from target: %r", ctx.target)
             return []
 
         argv = ["sslyze", *_SSLYZE_CHECKS, "--json_out", "-", f"{host}:{port}"]
         try:
             result = run_tool(argv, timeout=ctx.timeout)
         except ToolNotFound as exc:
-            log.warning("sslyze topilmadi: %s", exc)
+            log.warning("sslyze not found: %s", exc)
             return []
 
         if not result.ok:
@@ -112,7 +112,7 @@ class EnvyAdapter:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            log.warning("envy: sslyze chiqishi JSON emas")
+            log.warning("envy: sslyze output is not JSON")
             return []
         if not isinstance(payload, dict):
             return []
@@ -123,7 +123,7 @@ class EnvyAdapter:
                 continue
             if server.get("scan_status") != "COMPLETED":
                 log.info(
-                    "envy: skan tugamadi (%s) — o'tkazib yuborildi",
+                    "envy: scan did not complete (%s) — skipped",
                     server.get("scan_status"),
                 )
                 continue
@@ -170,8 +170,8 @@ class EnvyAdapter:
             return []
 
         delta = not_after - datetime.now(UTC)
-        # Manfiy qiymatda pastga, musbatda yuqoriga yaxlitlaymiz: sertifikat
-        # 9.9 kun qolganda "10 kun" deb ko'rsatiladi, "9 kun" emas.
+        # Round down for negative values and up for positive ones: a certificate
+        # with 9.9 days left is shown as "10 days", not "9 days".
         if delta.total_seconds() < 0:
             days_left = math.floor(delta.total_seconds() / 86400)
         else:
@@ -389,8 +389,8 @@ class EnvyAdapter:
 def _split_host_port(value: str) -> tuple[str, int]:
     """`https://example.com/path` -> `("example.com", 443)`.
 
-    Port berilmagan bo'lsa sxema bo'yicha tanlanadi (http -> 80, aks holda 443).
-    Noto'g'ri IPv6 yozuvi ham crash qilmaydi — host bo'sh qaytadi.
+    If no port is given, it is chosen by scheme (http -> 80, otherwise 443).
+    Malformed IPv6 input does not crash either — the host comes back empty.
     """
     raw = value.strip()
     if not raw.startswith(("http://", "https://")):
@@ -453,81 +453,78 @@ def _dedupe(findings: list[FindingContract]) -> list[FindingContract]:
 
 
 def _remediation(code: str) -> Remediation:
-    """Tuzatish yo'li — o'zbekcha, amaliy qadamlar bilan."""
+    """Remediation path — practical steps."""
     table: dict[str, Remediation] = {
         "cert_expired": Remediation(
-            summary=(
-                "TLS sertifikatining muddati tugagan — brauzer saytni ishonchsiz deb ko'rsatadi."
-            ),
+            summary=("The TLS certificate has expired — browsers show the site as untrusted."),
             steps=[
-                "Sertifikatni yangilang (masalan, `certbot renew` yoki CA panelidan).",
-                "Yangilash avtomatlashtirilganini tekshiring: muddat tugashidan 30 kun oldin.",
-                "Yangilangandan so'ng zanjir to'liq o'rnatilganini tekshiring.",
+                "Renew the certificate (e.g. `certbot renew` or from the CA panel).",
+                "Make sure renewal is automated: 30 days before expiry.",
+                "After renewal, verify the full chain is installed.",
             ],
             references=["https://letsencrypt.org/docs/renewal-reminder/"],
         ),
         "cert_expiring": Remediation(
-            summary="TLS sertifikati yaqin kunlarda tugaydi.",
+            summary="The TLS certificate expires in the coming days.",
             steps=[
-                "Avtomatik yangilash (ACME/`certbot`) sozlanganini tekshiring.",
-                "Yangilash ishlamasa, sertifikatni qo'lda qayta chiqaring.",
-                "Monitoringga muddat tugash ogohlantirishini qo'shing.",
+                "Verify automatic renewal (ACME/`certbot`) is configured.",
+                "If renewal fails, reissue the certificate manually.",
+                "Add an expiry warning to your monitoring.",
             ],
         ),
         "weak_signature": Remediation(
-            summary="Sertifikat zaif imzo algoritmi bilan imzolangan.",
+            summary="The certificate is signed with a weak algorithm.",
             steps=[
-                "SHA-256 yoki undan kuchli algoritm bilan yangi sertifikat oling.",
-                "CA bilan SHA-1 dan voz kechilganini tasdiqlang.",
+                "Obtain a new certificate signed with SHA-256 or stronger.",
+                "Confirm with your CA that SHA-1 has been retired.",
             ],
         ),
         "weak_chain_signature": Remediation(
-            summary="Sertifikat zanjirida SHA-1 imzosi bor.",
+            summary="The certificate chain contains a SHA-1 signature.",
             steps=[
-                "Oraliq sertifikatlarni zamonaviy SHA-256 zanjiriga almashtiring.",
-                "Serverdagi to'liq zanjirni (leaf + intermediate) qayta o'rnating.",
+                "Replace intermediate certificates with a modern SHA-256 chain.",
+                "Reinstall the full chain (leaf + intermediate) on the server.",
             ],
         ),
         "untrusted": Remediation(
-            summary="Sertifikatga ishonchli CA zanjiri orqali ishonib bo'lmaydi.",
+            summary="The certificate cannot be trusted through a trusted CA chain.",
             steps=[
-                "Ommaviy CA'dan sertifikat oling yoki ichki CA'ni klientlarga tarqating.",
-                "To'liq zanjirni (leaf + intermediate) serverga o'rnating.",
-                "Sertifikatdagi CN/SAN nishon domeniga mos kelishini tekshiring.",
+                "Obtain a certificate from a public CA, or distribute your internal CA to clients.",
+                "Install the full chain (leaf + intermediate) on the server.",
+                "Verify the certificate CN/SAN matches the target domain.",
             ],
         ),
         "legacy_protocol": Remediation(
-            summary="Eskirgan TLS/SSL protokoli yoqilgan — zaif shifrlash xavfi.",
+            summary="A legacy TLS/SSL protocol is enabled — risk of weak encryption.",
             steps=[
-                "Server konfiguratsiyasida eski protokollarni o'chiring (SSLv2/SSLv3/TLS 1.0/1.1).",
-                "Faqat TLS 1.2 va TLS 1.3 ni qoldiring.",
-                "Eski klientlarga bog'liqlik bo'lsa, ularni yangilash rejasini tuzing.",
+                "Disable legacy protocols in the server configuration (SSLv2/SSLv3/TLS 1.0/1.1).",
+                "Keep only TLS 1.2 and TLS 1.3.",
+                "If legacy clients depend on them, plan their upgrade.",
             ],
             references=["https://ssl-config.mozilla.org/"],
         ),
         "heartbleed": Remediation(
-            summary="Server Heartbleed zaifligiga ochiq — xotira o'qib olinishi mumkin.",
+            summary="The server is vulnerable to Heartbleed — memory can be read remotely.",
             steps=[
-                "OpenSSL'ni zudlik bilan yangilang (1.0.1g yoki undan yuqori).",
-                "Sertifikat va maxfiy kalitlarni almashtiring — ular o'g'irlangan bo'lishi mumkin.",
-                "Barcha sessiya tokenlarini bekor qiling.",
+                "Update OpenSSL immediately (1.0.1g or later).",
+                "Replace the certificate and private keys — they may have been stolen.",
+                "Revoke all session tokens.",
             ],
             references=["https://heartbleed.com/"],
         ),
         "compression": Remediation(
-            summary="TLS siqish yoqilgan — CRIME hujumiga yo'l ochadi.",
+            summary="TLS compression is enabled — it opens the door to CRIME attacks.",
             steps=[
-                "Server sozlamalarida TLS compression'ni o'chiring.",
-                "Ilova darajasida siqishdan foydalaning (masalan, gzip HTTP'da).",
+                "Disable TLS compression in the server configuration.",
+                "Use compression at the application layer instead (e.g. gzip over HTTP).",
             ],
         ),
         "hsts": Remediation(
-            summary="HSTS sarlavhasi yo'q — birinchi so'rov HTTP orqali o'g'irlanishi mumkin.",
+            summary="The HSTS header is missing — the first request can be hijacked over HTTP.",
             steps=[
-                "`Strict-Transport-Security: max-age=31536000; includeSubDomains` qo'shing.",
-                "Barcha HTTP so'rovlarini HTTPS'ga yo'naltiring.",
-                "Preload ro'yxatiga qo'shishdan oldin barcha subdomenlar HTTPS "
-                "ishlashini tekshiring.",
+                "Add `Strict-Transport-Security: max-age=31536000; includeSubDomains`.",
+                "Redirect all HTTP requests to HTTPS.",
+                "Before adding to the preload list, verify every subdomain works over HTTPS.",
             ],
             references=[
                 "https://developer.mozilla.org/docs/Web/HTTP/Headers/Strict-Transport-Security"

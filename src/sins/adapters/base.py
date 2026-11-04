@@ -1,13 +1,13 @@
-"""Adapter shartnomasi.
+"""Adapter contract.
 
-Har bir "gunoh" — bu tashqi tool'ning yupqa adapter'i.
-Adapter faqat 3 ta narsa qiladi:
-  1. tool bor-yo'qligini tekshiradi
-  2. tool'ni ishga tushiradi
-  3. chiqishni FindingContract ga aylantiradi
+Every "sin" is a thin adapter over an external tool.
+An adapter does exactly three things:
+  1. checks whether the tool is present
+  2. runs the tool
+  3. converts the output into a FindingContract
 
-Hech qanday payload, hech qanday exploit logikasi bu yerda yozilmaydi —
-hammasi tayyor tool'larning ichida.
+No payloads and no exploit logic are written here —
+all of that lives inside the ready-made tools.
 """
 
 from __future__ import annotations
@@ -24,25 +24,27 @@ class ScanContext(BaseModel):
     max_rps: int = 50
     timeout: int = 900
     templates: list[str] = Field(default_factory=list)
-    # `info` sukut bo'yicha chiqarilmaydi — shovqin ko'p (masalan security header'lar)
+    # `info` is excluded by default — it is noisy (e.g. security headers)
     severities: list[str] = Field(default_factory=lambda: ["critical", "high", "medium", "low"])
+    # Findings of a previous scan — used by the exploit confirmation pass (Wrath).
+    prior_findings: list[FindingContract] = Field(default_factory=list)
 
 
 @runtime_checkable
 class Adapter(Protocol):
     name: ClassVar[str]
     category: ClassVar[Category]
-    sin: ClassVar[str]  # ichki kod nomi
+    sin: ClassVar[str]  # internal codename
 
     def available(self) -> bool: ...
 
     def applies_to(self, target: str) -> bool:
-        """Bu adapter shu nishon turiga mantiqan mos keladimi?
+        """Does this adapter logically apply to this target kind?
 
-        Nega kerak: `osv-scanner` faqat lokal papka/lockfile bilan ishlaydi.
-        URL'ga qarshi ishga tushirilsa — tool osilib qoladi va natija bermaydi.
-        Mos kelmasa, orkestrator adapterni umuman chaqirmaydi va hisobotda
-        "o'tkazib yuborildi" deb ko'rsatadi.
+        Why it matters: `osv-scanner` only works on a local directory/lockfile.
+        Run against a URL it hangs and returns nothing.
+        When it does not apply, the orchestrator skips the adapter entirely and
+        reports it as "skipped" in the report.
         """
         ...
 

@@ -1,4 +1,4 @@
-"""HTTP middleware: request ID, access log, metrikalar va rate limit."""
+"""HTTP middleware: request ID, access log, metrics and rate limiting."""
 
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ from .ratelimit import TokenBucketLimiter
 
 access_log = logging.getLogger("sins.access")
 
-# Rate limit qo'llanmaydigan yo'llar — monitoring va hujjatlar.
+# Paths exempt from rate limiting — monitoring and docs.
 _EXEMPT_PREFIXES = ("/metrics", "/healthz", "/readyz", "/docs", "/redoc", "/openapi.json")
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
-    """Har bir so'rov uchun request ID, davomiylik va access log."""
+    """Request ID, duration and access log for every request."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         incoming = request.headers.get("X-Request-ID")
@@ -41,7 +41,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             access_log.exception(
-                "so'rov yiqildi",
+                "request failed",
                 extra={
                     "event": "http.request",
                     "method": request.method,
@@ -82,7 +82,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Kalit/IP bo'yicha so'rovlar sonini cheklaydi (sukut: 600/daqiqa)."""
+    """Limits requests per key/IP (default: 600/minute)."""
 
     def __init__(self, app, limiter: TokenBucketLimiter | None = None) -> None:  # noqa: ANN001
         super().__init__(app)
@@ -104,7 +104,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
-                    "detail": "So'rovlar soni chegaradan oshdi. Keyinroq qayta urinib ko'ring.",
+                    "detail": "Request limit exceeded. Please retry later.",
                     "retry_after_seconds": retry_after,
                 },
                 headers={"Retry-After": str(max(1, int(retry_after + 0.999)))},
@@ -113,7 +113,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 
 def _route_label(request: Request) -> str:
-    """Metrika uchun past kardinallik yorlig'i — `/{id}` shabloni."""
+    """Low-cardinality label for metrics — the `/{id}` template."""
     route = request.scope.get("route")
     path_format = getattr(route, "path_format", None)
     if isinstance(path_format, str):

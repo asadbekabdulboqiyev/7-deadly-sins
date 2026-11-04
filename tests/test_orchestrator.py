@@ -1,7 +1,7 @@
-"""Orkestrator: nishon turiga mos kelmaydigan engine'lar o'tkazib yuborilishi.
+"""Orchestrator: engine adapters not applicable to the target input are skipped.
 
-Bu testlar regressiyani qo'riqlaydi: `osv-scanner` URL'ga qarshi ishga
-tushirilsa osilib qoladi (real hodisa). Endi u umuman chaqirilmaydi.
+These tests guard a regression: `osv-scanner` must not run against a URL
+input (real incident). It is now never invoked directly.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class _FakeAdapter:
         return [
             FindingContract(
                 category=self.category,
-                title=f"{self.name} topilmasi",
+                title=f"{self.name} finding",
                 severity=Severity.low,
                 location=ctx.target,
                 dedup_key=f"{self.name}-1",
@@ -46,7 +46,7 @@ class _FakeAdapter:
 
 
 def _orchestrator_with(*adapters) -> SinsOrchestrator:
-    # Mavjud bo'lmagan engine nomi — REGISTRY'dan hech narsa olinmaydi.
+    # Unknown engine name - nothing is picked from the REGISTRY.
     orch = SinsOrchestrator(["__none__"])
     orch.adapters = list(adapters)
     return orch
@@ -94,8 +94,8 @@ async def test_run_skips_inapplicable_engine_and_still_reports_progress() -> Non
     assert by_name["runner"].findings == 1
     assert by_name["skipped"].skipped is True
     assert by_name["skipped"].ok is True
-    assert "mos emas" in (by_name["skipped"].skip_reason or "")
+    assert "does not apply" in (by_name["skipped"].skip_reason or "")
 
-    # Progress callback ikkala engine uchun ham chaqirildi — progress 100% bo'ladi
+    # The progress callback fires for both engines - progress reaches 100%
     assert {e.name for e in seen} == {"runner", "skipped"}
     assert len(report.findings) == 1

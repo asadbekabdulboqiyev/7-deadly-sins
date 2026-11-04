@@ -4,9 +4,9 @@ Revision ID: cd03cafa75e7
 Revises:
 Create Date: 2026-10-31 18:49:42.506172
 
-Boshlang'ich sxema: tenants, targets, scans, findings.
-Keyingi o'zgarishlar `alembic revision --autogenerate` bilan qo'shiladi —
-`init-db` faqat lokal dev uchun.
+Initial schema: tenants, targets, scans, findings.
+Future changes are added via `alembic revision --autogenerate` —
+`init-db` is for local dev only.
 """
 
 from __future__ import annotations

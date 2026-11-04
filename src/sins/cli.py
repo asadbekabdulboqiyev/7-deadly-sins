@@ -1,4 +1,4 @@
-"""SINS CLI — dashboard yozishdan oldin hamma narsa shu yerda ishlaydi."""
+"""SINS CLI - attack surface and vulnerability assessment."""
 
 from __future__ import annotations
 
@@ -18,34 +18,34 @@ from .config import get_settings
 from .orchestrator import ScanReport, SinsOrchestrator
 from .targets import is_lab_target
 
-app = typer.Typer(add_completion=False, help="SINS — attack surface & vulnerability assessment")
+app = typer.Typer(add_completion=False, help="SINS - attack surface and vulnerability assessment")
 console = Console()
 
 
 @app.command()
 def adapters() -> None:
-    """Mavjud engine'larni ko'rsatadi."""
+    """List the available engines."""
     table = Table(title="SINS adapters")
     table.add_column("Engine", style="bold")
     table.add_column("Sin")
-    table.add_column("Kategoriya")
-    table.add_column("Holat")
+    table.add_column("Category")
+    table.add_column("Status")
     for name, adapter in REGISTRY.items():
         ok = adapter.available()
         table.add_row(
             name,
             adapter.sin,
             adapter.category,
-            "[green]tayyor[/green]" if ok else "[red]o'rnatilmagan[/red]",
+            "[green]ready[/green]" if ok else "[red]not installed[/red]",
         )
     console.print(table)
 
 
 @app.command("init-db")
 def init_db(
-    drop: bool = typer.Option(False, "--drop", help="Avval mavjud jadvallarni o'chirish"),
+    drop: bool = typer.Option(False, "--drop", help="First, delete existing tables"),
 ) -> None:
-    """Dev uchun jadvallarni yaratadi (production'da Alembic)."""
+    """Create tables for development (Alembic for production)."""
     from .db import create_all, drop_all
 
     async def _run() -> None:
@@ -58,18 +58,18 @@ def init_db(
 
 
 @app.command()
-def verify(target: str = typer.Argument(..., help="Domen yoki URL")) -> None:
-    """Egalikni isbotlash uchun token yaratadi va ko'rsatma beradi."""
+def verify(target: str = typer.Argument(..., help="Domain or URL")) -> None:
+    """Issue a token to prove ownership."""
     token = issue_token()
     ttl = get_settings().verify_token_ttl_hours
     console.print(
         Panel.fit(
-            f"[bold]Nishon:[/bold] {target}\n"
+            f"[bold]Target:[/bold] {target}\n"
             f"[bold]Token:[/bold] {token}\n"
-            f"[bold]Amal qiladi:[/bold] {ttl} soat\n\n"
-            "[bold]1-usul — DNS TXT:[/bold]\n"
+            f"[bold]Executes:[/bold] {ttl} hours\n\n"
+            "[bold]1. method — DNS TXT:[/bold]\n"
             f'  _sins-verify.<domain>  TXT  "{token}"\n\n'
-            "[bold]2-usul — HTTP fayl:[/bold]\n"
+            "[bold]2. method — HTTP file:[/bold]\n"
             f"  /.well-known/sins-verify-{token}\n\n"
             "[dim]Keyin: sins scan <target> --verify-token " + token + "[/dim]",
             title="Authorization gate",
@@ -80,33 +80,32 @@ def verify(target: str = typer.Argument(..., help="Domen yoki URL")) -> None:
 
 @app.command()
 def scan(
-    target: str = typer.Argument(..., help="Nishon (domen, URL yoki lokal manzil)"),
+    target: str = typer.Argument(..., help="Domain or URL"),
     engine: list[str] = typer.Option(None, "--engine", "-e", help="nuclei | osv"),
-    verify_token: str | None = typer.Option(None, "--verify-token", help="Egalik tokeni"),
-    lab: bool = typer.Option(False, "--lab", help="Lokal/lab nishon (faqat private IP)"),
-    json_out: Path | None = typer.Option(None, "--json", help="Natijani JSON ga yozish"),
-    rate_limit: int | None = typer.Option(None, "--rate-limit", help="So'rov/sekund"),
-    templates: list[str] = typer.Option(None, "--templates", "-t", help="nuclei template yo'li"),
+    verify_token: str | None = typer.Option(None, "--verify-token", help="Ownership token"),
+    lab: bool = typer.Option(False, "--lab", help="Local/lab target (private IP only)"),
+    json_out: Path | None = typer.Option(None, "--json", help="Write the result to a JSON file"),
+    rate_limit: int | None = typer.Option(None, "--rate-limit", help="Requests per second"),
+    templates: list[str] = typer.Option(None, "--templates", "-t", help="nuclei template path"),
     severity: list[str] = typer.Option(
         None, "--severity", "-s", help="critical|high|medium|low|info (takrorlash mumkin)"
     ),
 ) -> None:
-    """Skan boshlaydi. Egalik isbotlanmasa — bloklanadi."""
+    """Run the scan. Rejects it when ownership is not verified."""
     settings = get_settings()
 
     # --- AUTHORIZATION GATE ---
     if not lab and not verify_token:
         console.print(
-            "[red]Rad etildi:[/red] --verify-token kerak. "
-            "Avval `sins verify <target>` ni ishlating."
+            "[red]Rejected:[/red] --verify-token is required. Run `sins verify <target>` first."
         )
         raise typer.Exit(code=2)
 
     if lab:
         if not is_lab_target(target):
             console.print(
-                f"[red]Rad etildi:[/red] --lab faqat lokal/private nishonlar uchun. "
-                f"'{target}' tashqi manzil — `--verify-token` ishlating."
+                "[red]Rejected:[/red] --lab is only for local/private targets. "
+                f"'{target}' is an external address - use `--verify-token`."
             )
             raise typer.Exit(code=2)
     else:
@@ -115,7 +114,7 @@ def scan(
         except OwnershipError as exc:
             console.print(f"[red]Rad etildi:[/red] {exc}")
             raise typer.Exit(code=3) from exc
-        console.print(f"[green]Egalik tasdiqlandi[/green] (usul: {method})")
+        console.print(f"[green]Ownership verified[/green] (method: {method})")
 
     ctx = ScanContext(
         target=target,
@@ -127,22 +126,22 @@ def scan(
 
     orchestrator = SinsOrchestrator(engine)
     if not orchestrator.adapters:
-        console.print("[red]Hech qanday engine tayyor emas.[/red] `sins adapters` ni tekshiring.")
+        console.print("[red]No engines are ready.[/red] Run `sins adapters` to check.")
         raise typer.Exit(code=4)
 
     runnable = [a for a in orchestrator.adapters if a.applies_to(target)]
     skipped = [a.name for a in orchestrator.adapters if not a.applies_to(target)]
     if not runnable:
         console.print(
-            f"[red]Tanlangan engine'lar '{target}' nishon turiga mos emas.[/red] "
-            "Dependency auditi (osv) uchun lokal papka bering."
+            "[red]The selected engines do not apply to the target type.[/red] "
+            "For the dependency audit (osv), point at a local source directory."
         )
         raise typer.Exit(code=4)
 
-    console.print(f"[dim]Ishga tushdi: {', '.join(a.name for a in runnable)}[/dim]")
+    console.print(f"[dim]Started: {', '.join(a.name for a in runnable)}[/dim]")
     if skipped:
-        console.print(f"[dim]O'tkazib yuborildi (nishon turi mos emas): {', '.join(skipped)}[/dim]")
-    with console.status("Skanlanmoqda..."):
+        console.print(f"[dim]Skipped (target type not applicable): {', '.join(skipped)}[/dim]")
+    with console.status("Scanning..."):
         report = asyncio.run(orchestrator.run(ctx))
 
     _print_report(report)
@@ -177,11 +176,11 @@ def scan(
 
 @app.command()
 def report(
-    scan_json: Path = typer.Argument(..., help="`sins scan --json` chiqishi"),
-    out: Path = typer.Option(Path("report.pdf"), "--out", "-o", help="PDF fayl"),
-    tenant: str = typer.Option("Mijoz", "--tenant", help="Hisobotdagi mijoz nomi"),
+    scan_json: Path = typer.Argument(..., help="`sins scan --json` output"),
+    out: Path = typer.Option(Path("report.pdf"), "--out", "-o", help="PDF file"),
+    tenant: str = typer.Option("Client", "--tenant", help="Client name on the report"),
 ) -> None:
-    """Skan JSON'idan professional PDF hisobot yasaydi."""
+    """Generate a professional PDF report from scan JSON."""
     from .report import build_context, render_pdf
     from .schemas import FindingContract
 
@@ -200,17 +199,17 @@ def report(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(render_pdf(ctx))
     console.print(
-        f"[green]Hisobot tayyor:[/green] {out}  "
-        f"({out.stat().st_size // 1024} KB, {ctx['total_findings']} topilma, "
+        f"[green]Report ready:[/green] {out}  "
+        f"({out.stat().st_size // 1024} KB, {ctx['total_findings']} findings, "
         f"risk {ctx['risk_score']}/100 — {ctx['risk_grade']})"
     )
 
 
 @app.command("create-tenant")
 def create_tenant(
-    name: str = typer.Option(..., "--name", "-n", help="Mijoz nomi (masalan: Demo Bank)"),
+    name: str = typer.Option(..., "--name", "-n", help="Client name (for example: Demo Bank)"),
 ) -> None:
-    """Yangi mijoz yaratadi. API kalit faqat BIR MARTA ko'rsatiladi."""
+    """Create a new client. The API key is shown only once."""
     from .db import get_sessionmaker
     from .services import scan_service
 
@@ -222,12 +221,13 @@ def create_tenant(
     tenant_id, tenant_name, raw_key = asyncio.run(_run())
     console.print(
         Panel.fit(
-            f"[bold]Mijoz:[/bold] {tenant_name}\n"
+            f"[bold]Client:[/bold] {tenant_name}\n"
             f"[bold]ID:[/bold] {tenant_id}\n\n"
-            f"[bold yellow]API kalit (boshqa ko'rsatilmaydi):[/bold yellow]\n"
+            "[bold yellow]API key (never shown again):[/bold yellow]\n"
             f"{raw_key}\n\n"
-            "[dim]Saqlang: bazada faqat hash qoladi. Yo'qolsa — yangi tenant kerak.[/dim]",
-            title="Yangi mijoz yaratildi",
+            "[dim]Save it: only the hash is kept in the database. "
+            "If lost, a new tenant is needed.[/dim]",
+            title="New client created",
             border_style="green",
         )
     )
@@ -235,10 +235,12 @@ def create_tenant(
 
 @app.command()
 def prune(
-    days: int = typer.Option(None, "--days", help="Necha kundan eski yozuvlar (sukut: sozlamadan)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Faqat ko'rsatadi, o'chirmaydi"),
+    days: int = typer.Option(
+        None, "--days", help="Days to keep old records (default from settings)"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show only, do not delete"),
 ) -> None:
-    """Saqlash siyosatidan eski skanlarni o'chiradi (GDPR/hajm uchun)."""
+    """Delete old scans from the retention policy (GDPR / volume)."""
     from .db import get_sessionmaker
     from .services import scan_service
 
@@ -249,20 +251,22 @@ def prune(
             return await scan_service.prune_scans(session, older_than_days=window, dry_run=dry_run)
 
     scans, findings = asyncio.run(_run())
-    verb = "o'chiriladi" if not dry_run else "o'chirilgan bo'lardi"
+    verb = "deleted" if not dry_run else "would be deleted"
     console.print(
-        f"[bold]{window}[/bold] kundan eski: [bold]{scans}[/bold] skan, "
-        f"[bold]{findings}[/bold] topilma {verb}."
+        f"[bold]{window}[/bold] days old: [bold]{scans}[/bold] scans, "
+        f"[bold]{findings}[/bold] findings {verb}."
     )
     if dry_run:
-        console.print("[dim]--dry-run: bazaga hech narsa yozilmadi.[/dim]")
+        console.print("[dim]--dry-run: nothing was written to the database.[/dim]")
 
 
 @app.command("rotate-key")
 def rotate_key(
-    api_key: str = typer.Option(..., "--api-key", help="Joriy API kalit (tenantni aniqlash uchun)"),
+    api_key: str = typer.Option(
+        ..., "--api-key", help="Current API key (for tenant identification)"
+    ),
 ) -> None:
-    """Tenant uchun yangi API kalit beradi. Eski kalit darhol ishlamaydi."""
+    """Issue a new API key for the tenant. The old key stops working immediately."""
     from .db import get_sessionmaker
     from .services import scan_service
 
@@ -276,17 +280,17 @@ def rotate_key(
 
     result = asyncio.run(_run())
     if result is None:
-        console.print("[red]Kalit topilmadi.[/red]")
+        console.print("[red]API key not found.[/red]")
         raise typer.Exit(code=1)
 
     name, raw = result
     console.print(
         Panel.fit(
             f"[bold]Mijoz:[/bold] {name}\n\n"
-            f"[bold yellow]Yangi API kalit (boshqa ko'rsatilmaydi):[/bold yellow]\n"
+            "[bold yellow]New API key (never shown again):[/bold yellow]\n"
             f"{raw}\n\n"
-            "[dim]Eski kalit shu zahoti ishlamaydi — mijozni yangilang.[/dim]",
-            title="Kalit almashtirildi",
+            "[dim]Old key is now inactive - renew the client.[/dim]",
+            title="Key rotated",
             border_style="yellow",
         )
     )
@@ -294,11 +298,11 @@ def rotate_key(
 
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", "--host", help="Bind manzil"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address"),
     port: int = typer.Option(8000, "--port", "-p", help="Port"),
-    reload: bool = typer.Option(False, "--reload", help="Kod o'zgarsa qayta yuklash (dev)"),
+    reload: bool = typer.Option(False, "--reload", help="Reload on code change (dev)"),
 ) -> None:
-    """HTTP API'ni ishga tushiradi."""
+    """Run the HTTP API."""
     import uvicorn
 
     console.print(f"[green]API:[/green] http://{host}:{port}/docs")
@@ -307,12 +311,12 @@ def serve(
 
 @app.command()
 def worker() -> None:
-    """ARQ worker'ni ishga tushiradi (skan job'lari)."""
+    """Run the ARQ worker (scan jobs)."""
     from arq.worker import run_worker
 
     from .worker import WorkerSettings
 
-    console.print("[green]Worker ishga tushdi.[/green] Ctrl+C — to'xtatish.")
+    console.print("[green]Worker started.[/green] Press Ctrl+C to stop.")
     run_worker(WorkerSettings)
 
 
@@ -320,24 +324,24 @@ def _print_report(report: ScanReport) -> None:
     engines = Table(title="Engine natijalari")
     engines.add_column("Engine")
     engines.add_column("Sin")
-    engines.add_column("Topilma", justify="right")
-    engines.add_column("Vaqt", justify="right")
-    engines.add_column("Holat")
+    engines.add_column("Findings", justify="right")
+    engines.add_column("Duration", justify="right")
+    engines.add_column("Status")
     for e in report.engines:
         if e.skipped:
-            engines.add_row(e.name, e.sin, "—", "—", "[dim]o'tkazib yuborildi[/dim]")
+            engines.add_row(e.name, e.sin, "—", "—", "[dim]skipped[/dim]")
             continue
         status = "[green]ok[/green]" if e.ok else f"[red]{e.error}[/red]"
         engines.add_row(e.name, e.sin, str(e.findings), f"{e.duration_ms} ms", status)
     console.print(engines)
 
     if not report.findings:
-        console.print("[green]Topilma yo'q.[/green]")
+        console.print("[green]No findings.[/green]")
         return
 
-    table = Table(title=f"Topilmalar ({len(report.findings)})")
+    table = Table(title=f"Findings ({len(report.findings)})")
     table.add_column("Severity")
-    table.add_column("Kategoriya")
+    table.add_column("Category")
     table.add_column("Sarlavha", max_width=50)
     table.add_column("Joylashuv", max_width=40)
     table.add_column("Manba")

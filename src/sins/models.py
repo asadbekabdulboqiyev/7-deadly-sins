@@ -1,7 +1,7 @@
-"""SQLAlchemy modellari — PostgreSQL.
+"""SQLAlchemy models — PostgreSQL.
 
-Nega Postgres: finding'lar relatsion, dedup uchun JOIN kerak,
-xom tool chiqishi uchun jsonb yetarli, multi-tenancy uchun RLS bor.
+Why Postgres: findings are relational, dedup needs JOINs,
+jsonb is enough for raw tool output, and RLS provides multi-tenancy.
 """
 
 from __future__ import annotations
@@ -41,8 +41,8 @@ class ScanStatus(StrEnum):
     running = "running"
     done = "done"
     failed = "failed"
-    cancelled = "cancelled"  # foydalanuvchi bekor qildi
-    blocked = "blocked"  # authorization gate o'tmadi
+    cancelled = "cancelled"  # cancelled by the user
+    blocked = "blocked"  # failed the authorization gate
 
 
 class Tenant(Base):
@@ -50,7 +50,7 @@ class Tenant(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    # Kalitning o'zi emas — faqat SHA-256 hash. Ko'rsatish uchun qisqa prefiks.
+    # Not the key itself — only its SHA-256 hash. A short prefix for display.
     api_key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     api_key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -59,7 +59,7 @@ class Tenant(Base):
 
 
 class Target(Base):
-    """Tekshiriladigan nishon. Faqat egalik isbotlangandan keyin faol bo'ladi."""
+    """Target to be scanned. Becomes active only after ownership is proven."""
 
     __tablename__ = "targets"
     __table_args__ = (UniqueConstraint("tenant_id", "value", name="uq_target_per_tenant"),)
@@ -86,8 +86,8 @@ class Target(Base):
 class Scan(Base):
     __tablename__ = "scans"
     __table_args__ = (
-        # Bir tenant bir xil Idempotency-Key bilan ikki marta skan yaratmasin.
-        # Qisman indeks: kalit berilmagan (NULL) qatorlar to'qnashmaydi.
+        # One tenant must not create two scans with the same Idempotency-Key.
+        # Partial index: rows without a key (NULL) do not collide.
         Index(
             "uq_scan_idempotency",
             "tenant_id",
@@ -103,16 +103,16 @@ class Scan(Base):
 
     status: Mapped[str] = mapped_column(String(20), default=ScanStatus.pending)
     engines: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    # Qaysi og'irlik darajalari qidiriladi (info sukut bo'yicha yoqilmaydi)
+    # Which severity levels are searched (info is off by default)
     severities: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     error: Mapped[str | None] = mapped_column(Text)
-    # Ixtiyoriy: bir xil so'rov ikki marta yuborilsa, yangi skan yaratilmaydi.
+    # Optional: if the same request is sent twice, no new scan is created.
     idempotency_key: Mapped[str | None] = mapped_column(String(80))
 
-    # Progress kuzatuvi — UI progress-bar uchun
+    # Progress tracking — for the UI progress bar
     progress: Mapped[int] = mapped_column(Integer, default=0)
     current_engine: Mapped[str | None] = mapped_column(String(50))
-    # Har bir engine natijasi (nom, davomiylik, xato) — PDF hisobot uchun
+    # Per-engine result (name, duration, error) — for the PDF report
     engine_stats: Mapped[list[dict]] = mapped_column(JSONB, default=list)
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -120,6 +120,9 @@ class Scan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     findings: Mapped[list[Finding]] = relationship(back_populates="scan", cascade="all, delete")
+    finding_states: Mapped[list[FindingState]] = relationship(
+        back_populates="scan", cascade="all, delete"
+    )
 
 
 class Finding(Base):
@@ -155,3 +158,38 @@ class Finding(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     scan: Mapped[Scan] = relationship(back_populates="findings")
+
+
+class FindingState(Base):
+    """Exposure lifecycle for one finding fingerprint on one target."""
+
+    __tablename__ = "finding_states"
+    __table_args__ = (
+        UniqueConstraint("target_id", "fingerprint", name="uq_finding_state_per_target"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("targets.id", ondelete="CASCADE"), nullable=False
+    )
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    location: Mapped[str] = mapped_column(String(1000), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    occurrences: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    regressions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scans.id", ondelete="CASCADE"), nullable=False
+    )
+    scan: Mapped[Scan] = relationship(back_populates="finding_states")

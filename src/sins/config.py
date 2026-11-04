@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Barcha sozlamalar SINS_ prefiksi bilan .env dan o'qiladi."""
+    """All settings are read from .env with the SINS_ prefix."""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="SINS_", extra="ignore")
 
@@ -15,23 +15,24 @@ class Settings(BaseSettings):
     verify_token_ttl_hours: int = 72
     verify_recheck_days: int = 30
 
-    # Xavfsizlik to'siqlari — kod darajasida majburlanadi, o'chirib bo'lmaydi.
+    # Security guardrails — enforced at code level, cannot be disabled.
     max_rps: int = 50
     tool_timeout_seconds: int = 900
 
-    # Faqat shu adapterlar ishga tushadi. Vergul bilan ajratilgan satr:
-    # "nuclei,osv,pride,envy". Foydalanishda get_settings().allowed_engines_list().
-    allowed_engines: str = "nuclei,osv,pride,envy"
+    # Only these adapters run. Comma-separated string:
+    # "nuclei,osv,pride,envy,lust,gluttony,wrath".
+    # Access via get_settings().allowed_engines_list().
+    allowed_engines: str = "nuclei,osv,pride,envy,lust,gluttony,wrath"
 
-    # Engine vaqtincha yiqilsa (timeout, tarmoq xatosi) qayta urinishlar soni.
+    # Retry count when an engine fails transiently (timeout, network error).
     adapter_max_attempts: int = 2
     adapter_retry_backoff_seconds: float = 2.0
 
-    # HTTP himoyasi
+    # HTTP protection
     rate_limit_enabled: bool = True
     rate_limit_per_minute: int = 600
 
-    # Ma'lumot saqlash siyosati (kunlarda). `sins prune` va ARQ cron ishlatadi.
+    # Data retention policy (in days). Used by `sins prune` and the ARQ cron.
     retention_days: int = 180
 
     def allowed_engines_list(self) -> list[str]:

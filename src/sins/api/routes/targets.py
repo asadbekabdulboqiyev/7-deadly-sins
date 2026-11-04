@@ -1,4 +1,4 @@
-"""Nishonlar API'si: qo'shish, egalikni tasdiqlash, ro'yxat."""
+"""Targets API: create, verify ownership, list."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _to_out(target: Target) -> TargetOut:
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TargetOut)
 async def create_target(payload: TargetCreate, tenant: TenantDep, session: SessionDep) -> TargetOut:
-    """Nishon qo'shadi. Javobda egalikni tasdiqlash uchun aniq ko'rsatma bo'ladi."""
+    """Adds a target. The response includes precise instructions for proving ownership."""
     target = await scan_service.create_target(session, tenant, payload.value)
     return _to_out(target)
 
@@ -48,13 +48,13 @@ async def list_targets(
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> list[TargetOut]:
-    """Tenant nishonlari, eng yangisidan boshlab."""
+    """Tenant targets, newest first."""
     rows = await scan_service.list_targets(session, tenant, limit=limit, offset=offset)
     return [_to_out(t) for t in rows]
 
 
 @router.post("/{target_id}/verify", response_model=TargetOut)
 async def verify_target(target_id: UUID, tenant: TenantDep, session: SessionDep) -> TargetOut:
-    """DNS TXT yoki `.well-known` faylini tekshiradi."""
+    """Checks the DNS TXT record or the `.well-known` file."""
     target = await scan_service.verify_target(session, tenant, target_id)
     return _to_out(target)

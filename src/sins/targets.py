@@ -1,7 +1,7 @@
-"""Nishon bilan ishlash: turini aniqlash, tozalash, lab-cheklovi.
+"""Target handling: kind detection, normalization, lab check.
 
-Bu modul ATAYLAB tool'lardan mustaqil: CLI ham, API ham, worker ham
-bir xil qoidalar bilan ishlaydi.
+This module is DELIBERATELY independent of tools: CLI, API and worker all
+follow the same rules.
 """
 
 from __future__ import annotations
@@ -10,14 +10,14 @@ import ipaddress
 import re
 from urllib.parse import urlsplit
 
-# Domen uchun oddiy, lekin yetarli tekshiruv. IDN (punycode) ham o'tadi.
+# Simple but sufficient validation for domains. IDN (punycode) also passes.
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 LAB_SUFFIXES = (".local", ".test", ".localhost", ".internal")
 
 
 class InvalidTarget(ValueError):
-    """Nishon formati noto'g'ri — skan boshlanmaydi."""
+    """Invalid target format — the scan is not started."""
 
 
 def extract_host(value: str) -> str:
@@ -37,7 +37,7 @@ def extract_host(value: str) -> str:
 def classify_target(value: str) -> str:
     """`domain` | `url` | `ip` | `path`.
 
-    `path` — lokal papka (osv-scanner uchun). API orqali faqat lab rejimida.
+    `path` — a local directory (for osv-scanner). Via the API only in lab mode.
     """
     raw = value.strip()
     host = extract_host(raw)
@@ -52,28 +52,28 @@ def classify_target(value: str) -> str:
         return "url"
     if _DOMAIN_RE.match(host):
         return "domain"
-    # Lab nishonlari: `localhost`, `app.local` kabi bir qismli nomlar
+    # Lab targets: single-label names such as `localhost`, `app.local`
     if is_lab_target(raw):
         return "url" if raw.startswith(("http://", "https://")) else "domain"
     if raw.startswith(("/", "./", "~")) or raw in {".", ".."}:
         return "path"
     raise InvalidTarget(
-        f"'{value}' nishon sifatida tanilmadi. Domen (example.com), URL yoki IP kiriting."
+        f"'{value}' is not recognized as a target. Enter a domain (example.com), URL or IP."
     )
 
 
 def normalize_target(value: str) -> str:
-    """Nishonni yagona ko'rinishga keltiradi (takroriy yozuvlarni oldini oladi)."""
+    """Normalizes the target into a single form (prevents duplicate entries)."""
     raw = value.strip()
     if not raw:
-        raise InvalidTarget("Nishon bo'sh bo'lishi mumkin emas.")
+        raise InvalidTarget("Target must not be empty.")
     if len(raw) > 255:
-        raise InvalidTarget("Nishon juda uzun (255 belgidan oshdi).")
+        raise InvalidTarget("Target is too long (over 255 characters).")
     if any(ch.isspace() for ch in raw):
-        raise InvalidTarget("Nishonda bo'sh joy bo'lishi mumkin emas.")
-    # Argument injection: `nuclei -u -foo` kabi holatlarni to'sadi.
+        raise InvalidTarget("Target must not contain whitespace.")
+    # Argument injection: blocks cases like `nuclei -u -foo`.
     if raw.startswith("-"):
-        raise InvalidTarget("Nishon '-' bilan boshlanishi mumkin emas.")
+        raise InvalidTarget("Target must not start with '-'.")
 
     kind = classify_target(raw)
     if kind == "url":
@@ -84,7 +84,7 @@ def normalize_target(value: str) -> str:
 
 
 def is_lab_target(value: str) -> bool:
-    """Faqat lokal/lab nishonlar uchun egalik tekshiruvisiz ruxsat."""
+    """Allows local/lab targets without an ownership check."""
     host = extract_host(value)
     if host in {"localhost", "::1", "0.0.0.0"} or host.endswith(LAB_SUFFIXES):
         return True
