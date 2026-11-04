@@ -1,11 +1,23 @@
 from .base import Adapter, ScanContext
+from .envy import EnvyAdapter
 from .nuclei import NucleiAdapter
 from .osv import OsvAdapter
+from .pride import PrideAdapter
 
-# Faqat shu adapterlar mavjud. Har biri o'z "gunoh"iga mos keladi.
+# Adapterlar REGISTRY. Har biri o'z "gunoh"iga mos keladi.
 REGISTRY: dict[str, Adapter] = {
     "nuclei": NucleiAdapter(),
     "osv": OsvAdapter(),
+    "pride": PrideAdapter(),
+    "envy": EnvyAdapter(),
 }
 
-__all__ = ["REGISTRY", "Adapter", "ScanContext", "NucleiAdapter", "OsvAdapter"]
+__all__ = [
+    "REGISTRY",
+    "Adapter",
+    "EnvyAdapter",
+    "NucleiAdapter",
+    "OsvAdapter",
+    "PrideAdapter",
+    "ScanContext",
+]

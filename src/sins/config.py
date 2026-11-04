@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     tool_timeout_seconds: int = 900
 
     # Faqat shu adapterlar ishga tushadi. Vergul bilan ajratilgan satr:
-    # "nuclei,osv". Foydalanishda get_settings().allowed_engines_list().
-    allowed_engines: str = "nuclei,osv"
+    # "nuclei,osv,pride,envy". Foydalanishda get_settings().allowed_engines_list().
+    allowed_engines: str = "nuclei,osv,pride,envy"
 
     # Engine vaqtincha yiqilsa (timeout, tarmoq xatosi) qayta urinishlar soni.
     adapter_max_attempts: int = 2
