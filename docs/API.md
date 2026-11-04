@@ -81,6 +81,7 @@ Content-Type: application/json
 ```
 
 - `engines` bo'sh bo'lsa — barcha ruxsat etilganlar (`SINS_ALLOWED_ENGINES`).
+  Sukut: `nuclei,osv,pride,envy`.
 - `severities` bo'sh bo'lsa — `critical, high, medium, low` (`info` yo'q).
 - Egalik tasdiqlanmagan → 409.
 - Shu nishonda faol skan bor → 409.

@@ -23,8 +23,8 @@ Attack surface va zaiflik baholash platformasi. Yadro tamoyili:
 |---|---|---|---|
 | Greed (2) | CVE zaifliklar | `nuclei` | ✅ tayyor |
 | Sloth (7) | Dependency audit | `osv-scanner` | ✅ tayyor (faqat lokal papka) |
-| Pride (1) | Attack surface | `subfinder` + `naabu` + `httpx` | ⏳ Sprint 3 |
-| Envy (4) | SSL/TLS | `sslyze` (Python lib) | ⏳ Sprint 3 |
+| Pride (1) | Attack surface | `subfinder` + `naabu` + `httpx` | ✅ tayyor |
+| Envy (4) | SSL/TLS | `sslyze` (CLI) | ✅ tayyor |
 | Lust (3) | Auth flaws | nuclei auth templates + `pyjwt` | ⏳ Sprint 4 |
 | Gluttony (5) | Resilience | nuclei rate-limit templates (≤50 RPS) | ⏳ Sprint 4 |
 | Wrath (6) | Exploit validation | nuclei exploit templates | ⏳ Sprint 4 |
@@ -32,15 +32,18 @@ Attack surface va zaiflik baholash platformasi. Yadro tamoyili:
 **v1 dan chiqarilgan:** Hydra brute-force, DDoS stress-test, qo'lda exploit payload.
 Sabab: huquqiy javobgarlik. Batafsil — `docs/DECISIONS.md`.
 
+> Loyihada boshqa AI ham ishlaydi: qoidalar, buyruqlar va topshirilgan
+> vazifalar — `AI-HANDOFF.md`.
+
 ### Muhim: engine'lar nishon turiga qarab filtrlanadi
 
 Har bir adapter `applies_to(target)` beradi. Mos kelmagan engine **umuman
 ishga tushirilmaydi** va hisobotda "o'tkazib yuborildi" deb ko'rsatiladi.
 
-| Nishon turi | nuclei | osv |
-|---|---|---|
-| `example.com`, `https://…`, `10.0.0.1` | ✅ | — (faqat lokal papka) |
-| `/path/to/repo`, `./app` | — | ✅ |
+| Nishon turi | nuclei | pride | envy | osv |
+|---|---|---|---|---|
+| `example.com`, `https://…`, `10.0.0.1` | ✅ | ✅ | ✅ | — |
+| `/path/to/repo`, `./app` | — | — | — | ✅ |
 
 Sabab: `osv-scanner` URL'ga qarshi ishga tushirilsa osilib qoladi (real hodisa).
 

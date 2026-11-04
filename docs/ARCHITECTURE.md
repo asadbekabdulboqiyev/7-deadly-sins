@@ -43,6 +43,8 @@ takrorlamaydi**. Ular faqat `scan_service` funksiyalarini chaqiradi. Shu tufayli
 | `runner.py` | Xavfsiz subprocess: argv ro'yxati, timeout, killpg, chiqish chegarasi |
 | `adapters/base.py` | `Adapter` protokoli: `available()`, `applies_to()`, `run()` |
 | `adapters/nuclei.py` | Greed — CVE va noto'g'ri sozlashlar |
+| `adapters/pride.py` | Pride — subdomen/port/jonli xizmatlar (subfinder, naabu, httpx) |
+| `adapters/envy.py` | Envy — TLS sertifikati va protokollari (sslyze CLI) |
 | `adapters/osv.py` | Sloth — dependency auditi (faqat lokal papka) |
 | `dedup.py` | `dedup_key` va `correlate()` — bitta topilma, bir nechta dalil |
 | `orchestrator.py` | Adapterlarni parallel ishga tushirish, retry/backoff, `applies_to` |
