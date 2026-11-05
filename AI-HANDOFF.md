@@ -4,7 +4,7 @@
 > joins the project later. The current state lives in `PROGRESS.md` (the single
 > progress file). Architecture: `docs/ARCHITECTURE.md`.
 
-> Last verified state: 2026-11-04 — 280 tests, lint clean, format clean,
+> Last verified state: 2026-11-05 — **308 tests**, lint clean, format clean,
 > `alembic check` clean.
 
 ---
@@ -303,10 +303,18 @@ real ownership-gate verification.
 
 ## 8. Assigned work — priorities
 
-1. **P0.** Docker image / compose run — needs a machine with a Docker daemon.
-2. **P1.** Redis + ARQ full flow — needs Redis.
-3. **P2.** Real-domain ownership gate — needs a domain the owner controls.
-4. **P3.** API ↔ site integration — site is still static marketing.
+1. **P0.** Real-domain ownership gate — needs a domain the owner controls.
+2. **P1.** Engine binaries in the image (`nuclei`, `osv-scanner`, `subfinder`,
+   `naabu`, `httpx`) — without them a container scan finds nothing.
+3. **P2.** A live `Run scan` that returns findings (binaries above, or a
+   clearly labelled `simulated: true` fixture mode). Today it honestly returns
+   **0 findings**; the demo leans on `scripts/seed_demo.py`.
+4. **P3.** KEV/EPSS on `GET /scans/{id}/findings` — enrichment is report-only.
+5. **P4.** Drift section on the site is still "illustrative" — needs
+   `GET /public/demo/drift` or a read-only real timeline.
+
+Done already: Docker compose stack, Redis/ARQ flow, and API ↔ site integration
+(SSE + diff + PDF).
 
 ---
 

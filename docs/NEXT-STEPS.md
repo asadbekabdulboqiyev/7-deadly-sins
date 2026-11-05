@@ -4,6 +4,10 @@ Everything below is ordered by value per hour. Each item lists the exact
 commands, the file to touch and the definition of done. Nothing here is
 speculative: the gaps were verified in the 2026-11-05 session.
 
+Closed since the first draft: the site now talks to the API for real
+(`GET /scans/{id}/events` SSE, `GET /scans/{id}/diff`, `report.pdf`) and the
+demo tenant ships through `scripts/seed_demo.py`. See `PROGRESS.md`.
+
 ---
 
 ## 1. Prove the ownership gate on a real domain (2 h)
@@ -90,7 +94,29 @@ the API and the caption matches reality.
 
 ---
 
-## 5. Monitoring (half a day)
+## 5. Make a live `Run scan` produce findings (half a day)
+
+Today the honest answer to "run a scan on stage" is `0 findings`: the image has
+no engine binaries (item 3) and there is no fixture/replay layer, so a lab
+target has nothing to find. The demo narrative currently leans on the seeded
+history. Pick one:
+
+- **Bake the tools in** (item 3) and scan a lab target that actually has
+  something to find (`http://testphp.vulnweb.com` is the usual choice, but it
+  is *not* a lab target — it needs a real ownership proof or an explicit
+  allowlist entry).
+- **Fixture mode, clearly labelled:** `SINS_FIXTURE_ENGINES=1` makes adapters
+  return recorded `FindingContract` payloads from `tests/fixtures/`, and the API
+  response carries `"simulated": true` so the PDF and the site both say so. A
+  demo may not claim real findings when the engines did not run.
+
+**Done when:** a fresh scan returns > 0 findings, the report marks their
+provenance (`live` vs `simulated`), and `PROGRESS.md` stops calling the seeded
+history the only demo asset.
+
+---
+
+## 6. Monitoring (half a day)
 
 `observability.py` already exports Prometheus metrics; there is no dashboard.
 
@@ -106,7 +132,7 @@ after one scan.
 
 ---
 
-## 6. Keep the 84% → 90% honest
+## 7. Keep the 87% → 93% honest
 
 The score only moves when something is *demonstrated*, not described:
 

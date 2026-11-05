@@ -10,9 +10,9 @@ Last updated: 2026-11-05
 
 | Metric | Value |
 |---|---|
-| Tests | **293 passed** (`uv run pytest -q`) |
+| Tests | **308 passed** (`uv run pytest -q`) |
 | Coverage | ~76% (`pytest --cov=sins`) |
-| Lint | `ruff check` + `ruff format --check` clean (69 files) |
+| Lint | `ruff check` + `ruff format --check` clean (72 files) |
 | Migrations | head `c3d4e5f6a7b8` — `alembic check` clean |
 | API version | 0.2.0 |
 | Engines | all 7 enabled by default: `nuclei`, `osv`, `pride`, `envy`, `lust`, `gluttony`, `wrath` |
@@ -21,6 +21,42 @@ Last updated: 2026-11-05
 | Git | all work committed |
 
 ## Done
+
+### Demo-day hardening + site live demo (2026-11-05, third pass)
+- **Lab targets are truly offline** — `is_lab_target()` (`.local`, `localhost`,
+  loopback, private/link-local IP, `verify_method: lab`) now short-circuits
+  every outbound call in report generation and scanning, so a judging machine
+  with no network never waits on the 8 s intel timeout. Offline means zero
+  requests, not "fast failure".
+- **CORS actually works** — `allow_origins=["*"]` is no longer paired with
+  `allow_credentials=True` (a combination browsers silently reject); the SSE
+  endpoint accepts `?api_key=` because `EventSource` cannot send headers.
+- **SSE progress** — `GET /scans/{id}/events` streams `status/progress/engine`
+  frames and closes with a `done` event, so the site renders a live terminal.
+- **Seeded demo tenant** — `scripts/seed_demo.py` (`--reset`, `--json`) creates
+  tenant `Demo Bank`, one lab target, 5 scans / 8 findings with a deliberate
+  drift story: the newest scan carries a **new** `.env` finding and a
+  **resolved** `citrix` finding, so "diff vs previous scan" is never empty.
+  Also wired as an optional `seed` service in `docker-compose.yml`
+  (`--profile app`).
+- **Tests** — `tests/test_seed_demo.py` (+15) covers idempotency, reset,
+  drift story and lab-mode offline guarantee. 293 → **308 passed**.
+- **Site** — `src/lib/api.ts` typed client, `LiveDemo.tsx` (SSE terminal,
+  scan history, diff, one-click PDF), `Dedup.tsx` (3 → 1 `correlate()` panel),
+  `App.tsx` order `Drift → Dedup → Pipeline → LiveDemo`.
+- **Liquid glass** — `glisse@0.5.0` on the nav pill, hero CTAs, result card,
+  demo controls and closing CTA. glisse injects its CSS at runtime and wins
+  specificity ties, so sizes/radii are passed inline; the `:where()` palette is
+  overridden from `:root` and `<html data-theme="dark">`. The bridge classes
+  (`.glass-link`, `.glass-card`, `.lg-glass[data-scrolled]`) live **outside**
+  `@layer components` — Tailwind purges selectors that only exist at runtime.
+  `.btn/.btn-primary/.btn-ghost` were removed.
+- **Runtime QA (Playwright, 375/768/1024/1440)** — zero horizontal overflow;
+  glass card 24 px radius with `blur(18px) saturate(1.5)`; mobile menu opens and
+  closes on Escape with correct `aria-expanded`; contrast 4.75–18.04; reduced
+  motion leaves content at `opacity: 1`; demo key → 5 scans → `Run scan`
+  → `wrath/envy/lust/nuclei → done 100%` → diff → 47 KB PDF, **0 console
+  errors** on first paint (the demo key is opt-in, so no 401s).
 
 ### Threat intel + deployment proof (2026-11-05, second pass)
 - **CISA KEV + FIRST EPSS enrichment** — `src/sins/intel/` (kev.py,
@@ -155,24 +191,36 @@ Mandatory — none. Next-AI priorities (`AI-HANDOFF.md`, section 8):
 3. **Real-domain ownership gate** — mock/lab only, no real domain yet.
    Needs a domain the user controls: TXT record or `.well-known` file.
 4. **Prometheus/Grafana** — metrics exist, no dashboard yet.
-5. **Site ↔ API integration** — site is still static marketing; the Drift
-   section is explicitly labelled "illustrative".
+5. ~~**Site ↔ API integration**~~ — done for the live demo (SSE, diff, PDF).
+   The Drift section is still explicitly labelled "illustrative".
 6. **KEV/EPSS on the findings API** — today enrichment is report-only; exposing
    `kev`/`epss` on `GET /scans/{id}/findings` would let the site demo real data.
 7. **Engine coverage in the image** — `nuclei`, `osv-scanner`, `subfinder`,
    `naabu`, `httpx` are not baked into the Docker image, so a container scan
    can only run `pride`/`envy` when the binaries are mounted.
+8. **A live `Run scan` that returns findings** — with no engine binaries and no
+   fixture/replay layer, a scan of the seeded lab target completes honestly with
+   **0 findings**. The demo narrative rests on the seeded history (`seed_demo.py`);
+   either bake the tools in (7) or add a documented fixture mode before claiming
+   "new findings on stage".
 
 ## Verification commands
 
 ```bash
 cd /Users/asadbek/sins
-uv run pytest -q                                    # 293 passed
+uv run pytest -q                                    # 308 passed
 uv run ruff check src/ tests/ scripts/              # clean
 uv run ruff format --check src/ tests/ scripts/     # clean
 uv run alembic check                                # clean
 docker compose --profile app up -d                  # migrate → api → worker
 curl -fsS localhost:8000/healthz                    # {"status":"ok"}
+
+# demo data (idempotent; --reset wipes the tenant's scans first)
+SINS_DATABASE_URL=postgresql+asyncpg://asadbek@localhost:5432/sins \
+  uv run python scripts/seed_demo.py --reset --json
+
+# site gate
+cd /Users/asadbek/sins-site && npx tsc --noEmit && npm run build
 ```
 
 ## Important notes

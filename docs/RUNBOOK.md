@@ -43,6 +43,41 @@ docker compose logs -f api worker
 - [ ] Alembic `upgrade head` runs as a deploy step
 - [ ] `nuclei` and `osv-scanner` versions pinned and on `PATH`
 
+## Demo day (offline-safe)
+
+The demo is designed to survive a venue with no internet: lab targets make
+**zero** outbound calls, and every piece of history already sits in Postgres.
+
+```bash
+# 1. database + API (Redis not required: queue runs inline)
+SINS_DATABASE_URL=postgresql+asyncpg://asadbek@localhost:5432/sins \
+  uv run alembic upgrade head
+SINS_DATABASE_URL=postgresql+asyncpg://asadbek@localhost:5432/sins \
+  uv run python scripts/seed_demo.py --reset --json      # 5 scans / 8 findings
+SINS_DATABASE_URL=postgresql+asyncpg://asadbek@localhost:5432/sins \
+  SINS_RATE_LIMIT_ENABLED=false uv run sins serve --port 8000
+
+# 2. site
+cd ../sins-site && npm run build && npx vite preview --port 4173 --host 127.0.0.1
+```
+
+On stage: open the site → **Demo** section → press **Demo key** (tenant
+`Demo Bank`, key `sins_demo_stage_key_do_not_use_in_production`) → history
+fills with 5 scans → press **Run scan** → the terminal streams
+`wrath/envy/lust/nuclei · %` → **Download PDF** (≈47 KB).
+
+Known and honest:
+
+- A **fresh** scan of the seeded lab target returns **0 findings** — no engine
+  binaries on the laptop and no fixture mode. The narrative is the seeded
+  drift story (new `.env`, resolved `citrix`), not "we just found something".
+- `Run scan` takes ~20–25 s on the inline queue; do not click twice.
+- Docker was unavailable on the last machine, so the image path is only
+  verified from an earlier session.
+
+Re-seed between rehearsals: `scripts/seed_demo.py --reset` (idempotent without
+`--reset`; it will not duplicate the tenant).
+
 ## Troubleshooting
 
 ### `readyz` returns `db: down`
