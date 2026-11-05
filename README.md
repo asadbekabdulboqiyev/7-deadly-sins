@@ -129,6 +129,24 @@ database **as a SHA-256 hash only**. Rotate it with
 `POST /scans` supports the `Idempotency-Key` header: a network retry does not
 start a second scan.
 
+### Demo data (no network, no engines needed)
+
+A judging machine may have no internet and no `nuclei` binary. The seed script
+writes five finished scans straight into the database, so History, Findings,
+the diff and the PDFs all work offline:
+
+```bash
+uv run python scripts/seed_demo.py --reset     # tenant "Demo Bank", target https://demo-app.local
+uv run python scripts/seed_demo.py --json      # machine-readable ids for the site
+docker compose --profile app up -d             # runs `migrate` then `seed` automatically
+```
+
+The data tells a drift story instead of random rows: Log4Shell appears on the
+second scan, TLS 1.0 is fixed and later regresses, lodash and the missing CSP
+are resolved, and the newest scan adds an exposed `.env` while Citrix is fixed.
+The API has no "demo" branch — every row is written through the same tables a
+real scan uses. `tests/test_seed_demo.py` pins the story.
+
 ### Threat intelligence (CISA KEV + FIRST EPSS)
 
 Severity alone is a poor prioritiser: a medium CVE that is already exploited

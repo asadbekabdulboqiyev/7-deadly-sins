@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 
+from ...config import get_settings
+from ...db import get_sessionmaker
 from ...models import Finding, Scan, ScanStatus
 from ...services import scan_service
 from ..deps import SessionDep, TenantDep
@@ -233,4 +238,99 @@ async def download_report(scan_id: UUID, tenant: TenantDep, session: SessionDep)
         content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{scan_id}/events")
+async def scan_events(
+    scan_id: UUID,
+    request: Request,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    api_key: Annotated[
+        str | None,
+        Query(description="API key for EventSource clients (browsers cannot set headers)"),
+    ] = None,
+) -> StreamingResponse:
+    """Live scan progress as Server-Sent Events.
+
+    One event per state change, then `event: end`. The stream is read-only and
+    scoped to the caller's tenant. `?api_key=` exists only because the browser
+    `EventSource` API cannot send an `X-API-Key` header; query strings are not
+    written to the access log.
+    """
+    key = x_api_key or api_key
+    async with get_sessionmaker()() as session:
+        tenant = await scan_service.get_tenant_by_key(session, key or "")
+        if tenant is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing API key. Pass `X-API-Key` or `?api_key=`.",
+            )
+        scan = await scan_service.get_scan(session, tenant, scan_id)
+        tenant_id = tenant.id
+        initial = {
+            "status": scan.status,
+            "progress": scan.progress,
+            "engine": scan.current_engine,
+            "findings": None,
+            "error": scan.error,
+        }
+
+    poll = get_settings().sse_poll_seconds
+    terminal = {ScanStatus.done, ScanStatus.failed, ScanStatus.cancelled, ScanStatus.blocked}
+
+    async def events():
+        payload = initial
+        last = json.dumps(payload)
+        yield f"event: progress\ndata: {last}\n\n"
+        if payload["status"] in terminal:
+            yield "event: end\ndata: {}\n\n"
+            return
+
+        idle = 0
+        while True:
+            if await request.is_disconnected():
+                return
+            await asyncio.sleep(poll)
+            async with get_sessionmaker()() as session:
+                row = await session.get(Scan, scan_id)
+                if row is None or row.tenant_id != tenant_id:
+                    yield 'event: error\ndata: {"detail": "scan not found"}\n\n'
+                    return
+                findings = None
+                if row.status == ScanStatus.done:
+                    findings = await session.scalar(
+                        select(func.count()).select_from(Finding).where(Finding.scan_id == scan_id)
+                    )
+                payload = {
+                    "status": row.status,
+                    "progress": row.progress,
+                    "engine": row.current_engine,
+                    "findings": findings,
+                    "error": row.error,
+                }
+
+            body = json.dumps(payload)
+            if body != last:
+                last = body
+                idle = 0
+                yield f"event: progress\ndata: {body}\n\n"
+            else:
+                idle += 1
+                if idle >= 25:  # ~10 s of silence: keep proxies from closing us
+                    idle = 0
+                    yield ": keep-alive\n\n"
+
+            if payload["status"] in terminal:
+                yield "event: end\ndata: {}\n\n"
+                return
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

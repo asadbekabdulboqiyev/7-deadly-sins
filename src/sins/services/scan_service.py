@@ -865,8 +865,13 @@ async def build_report_context(session: AsyncSession, tenant: Tenant, scan: Scan
 
     findings = [_to_contract(r) for r in rows]
     settings = get_settings()
+    target_value = target.value if target else "—"
+    # Lab/demo targets must never reach the public internet: a judging machine
+    # with no network would otherwise sit through the intel timeout before the
+    # PDF appears. Offline means zero outbound calls, not "fast failure".
+    lab = target_value != "—" and is_lab_target(target_value)
     intel = None
-    if settings.threat_intel_enabled and findings:
+    if settings.threat_intel_enabled and findings and not lab:
         # Enrichment is additive: any failure inside `enrich` degrades to
         # "not consulted" and the report is still generated.
         try:
@@ -879,7 +884,7 @@ async def build_report_context(session: AsyncSession, tenant: Tenant, scan: Scan
 
     return build_context(
         scan_id=str(scan.id),
-        target=target.value if target else "—",
+        target=target_value,
         tenant_name=tenant.name,
         findings=findings,
         engines=scan.engine_stats or [],

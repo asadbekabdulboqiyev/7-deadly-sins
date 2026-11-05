@@ -40,6 +40,18 @@ class Settings(BaseSettings):
     threat_intel_enabled: bool = True
     threat_intel_timeout_seconds: float = 8.0
 
+    # Browser access (marketing site + local Vite dev server), comma-separated.
+    # `*` is accepted, but then credentials are disabled: per the CORS spec a
+    # wildcard origin cannot be combined with `allow_credentials=True`.
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
+    )
+    # How often the SSE progress stream polls the scan row.
+    sse_poll_seconds: float = 0.4
+
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
     def allowed_engines_list(self) -> list[str]:
         return [e.strip() for e in self.allowed_engines.split(",") if e.strip()]
 

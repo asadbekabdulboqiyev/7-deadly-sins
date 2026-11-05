@@ -7,6 +7,8 @@ which could accidentally delete the production DB.
 
 from __future__ import annotations
 
+import asyncio
+import gc
 import getpass
 import os
 
@@ -58,6 +60,11 @@ async def _schema():
     await create_all()
     yield
     await get_engine().dispose()
+    # Collect while the event loop is still open. Connections finalised after
+    # the loop closes print a confusing "Event loop is closed" traceback even
+    # though every test passed.
+    gc.collect()
+    await asyncio.sleep(0)
 
 
 @pytest_asyncio.fixture

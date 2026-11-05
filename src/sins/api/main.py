@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import text
 
@@ -113,6 +114,22 @@ def create_app() -> FastAPI:
     # Order matters: request ID outermost, rate limit next.
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestContextMiddleware)
+
+    # CORS is added last so it is the outermost layer: even 401/429/500
+    # responses carry the headers the browser needs to surface the error.
+    origins = get_settings().cors_origins_list()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        # A wildcard origin and credentials are mutually exclusive in the spec.
+        allow_credentials="*" not in origins,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["X-API-Key", "Content-Type", "Idempotency-Key"],
+        # The PDF endpoint returns the filename here; without `expose_headers`
+        # the browser cannot read it from JavaScript.
+        expose_headers=["Content-Disposition"],
+        max_age=600,
+    )
 
     app.include_router(targets.router)
     app.include_router(scans.router)

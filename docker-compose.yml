@@ -43,6 +43,22 @@ services:
     command: ["alembic", "upgrade", "head"]
     restart: "no"
 
+  # One command prepares a judging machine: five finished scans, a findings
+  # table, a diff with new/resolved rows and PDFs — no network, no engines.
+  # `docker compose --profile app up -d` runs it once after the migration.
+  seed:
+    profiles: ["app"]
+    build: .
+    environment:
+      SINS_DATABASE_URL: postgresql+asyncpg://sins:sins@postgres:5432/sins
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "scripts/seed_demo.py", "--reset"]
+    restart: "no"
+
   api:
     profiles: ["app"]
     build: .
