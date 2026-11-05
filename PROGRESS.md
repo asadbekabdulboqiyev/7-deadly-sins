@@ -4,7 +4,7 @@
 > left in one place, briefly.
 > Full instructions for the next AI: `AI-HANDOFF.md`.
 
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 ## Current state — steady
 
@@ -92,6 +92,31 @@ Envy → local TLS `127.0.0.1:8443` (3 findings: self-signed, expiry, HSTS).
   `testpaths=["tests","src/sins"]`
 - Stale `tmp_parent_test`/`tmp_child_test` leftovers removed
   (`alembic check` green)
+
+### Site + localization pass (2026-11-05)
+- **Site truth pass** — 7 sin engines over 6 OSS tools (was "4 engines");
+  all seven sins marked live; 5-step pipeline including Drift; Lust/Gluttony →
+  `httpx`, Wrath → `nuclei` re-run.
+- **New `Exposure drift` section** (`sins-site/src/components/Drift.tsx`) —
+  interactive SVG exposure timeline, selectable scans, state-change list,
+  accurate `GET /scans/:id/diff` payload. Backed by `drift.py` +
+  `drift_service.py` (fingerprint, `exposure_score`, regression counter).
+- **New proof strip** — 7 engines / 6 tools / 1 schema / 0 custom exploits.
+- **Design law** — eyebrow budget cut to 3, hero `min-h-[100dvh]`,
+  `section[id]` scroll-margin, skip link, section rhythm `6rem/8rem`.
+- **Responsive fixes** — 360–1440 px audited; removed the 12 px overflow at
+  360 px (`min-w-0` on drift grid children); chart hit areas now align exactly
+  with plotted points; tap targets ≥ 24 px; chart labels and placeholders
+  raised to AA contrast.
+- **Assets/meta** — `index.html` description/keywords/theme-color aligned to
+  `#08090b`; manifest colors fixed; OG + report-cover regenerated with current
+  copy and `meridian-bank.com` demo target.
+- **Backend localization** — PDF report template and CLI tables were partly
+  Uzbek (`Engine natijalari`, `Qanday tekshirildi`, `Manba`, `Sarlavha`,
+  `Maxfiy`…) → all English; methodology now lists all seven engines;
+  `lang="en"`, "Confidential" footer.
+- **Verification** — site `npm run build` + `tsc --noEmit` clean; backend
+  **280 tests passed**, ruff check/format clean.
 
 ## Remaining work
 

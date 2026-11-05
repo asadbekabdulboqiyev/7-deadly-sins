@@ -321,7 +321,7 @@ def worker() -> None:
 
 
 def _print_report(report: ScanReport) -> None:
-    engines = Table(title="Engine natijalari")
+    engines = Table(title="Engine results")
     engines.add_column("Engine")
     engines.add_column("Sin")
     engines.add_column("Findings", justify="right")
@@ -342,9 +342,9 @@ def _print_report(report: ScanReport) -> None:
     table = Table(title=f"Findings ({len(report.findings)})")
     table.add_column("Severity")
     table.add_column("Category")
-    table.add_column("Sarlavha", max_width=50)
-    table.add_column("Joylashuv", max_width=40)
-    table.add_column("Manba")
+    table.add_column("Title", max_width=50)
+    table.add_column("Location", max_width=40)
+    table.add_column("Source")
     colors = {
         "critical": "bold red",
         "high": "red",

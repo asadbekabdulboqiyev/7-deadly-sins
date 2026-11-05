@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Security Assessment — {{ target }}</title>
@@ -8,7 +8,7 @@
     size: A4;
     margin: 20mm 16mm 18mm 16mm;
     @bottom-left {
-      content: "Maxfiy — {{ target }}";
+      content: "Confidential — {{ target }}";
       font-size: 7.5pt;
       color: #94a3b8;
     }
@@ -260,9 +260,9 @@
   <table class="meta-table">
     <tr><td>Client</td><td>{{ tenant_name }}</td></tr>
     <tr><td>Scan ID</td><td class="mono">{{ scan_id }}</td></tr>
-    <tr><td>Sana</td><td>{{ generated_at_str }}</td></tr>
+    <tr><td>Date</td><td>{{ generated_at_str }}</td></tr>
     <tr><td>Duration</td><td>{{ duration_s }} s</td></tr>
-    <tr><td>Engine used</td><td>{{ engine_names }}</td></tr>
+    <tr><td>Engines used</td><td>{{ engine_names }}</td></tr>
     <tr><td>Total findings</td><td><strong>{{ total_findings }}</strong></td></tr>
   </table>
 
@@ -279,7 +279,7 @@
 
   <div class="cover-foot">
     This report is confidential. For the authorized client and its authorized personnel only.
-    Tarqatish taqiqlanadi.
+    Distribution is prohibited.
   </div>
 </div>
 
@@ -346,7 +346,7 @@
   </table>
   {% endif %}
 
-  <h3 style="margin-top:8mm">Engine natijalari</h3>
+  <h3 style="margin-top:8mm">Engine results</h3>
   <table class="grid">
     <thead>
       <tr>
@@ -369,7 +369,7 @@
         {% else %}
         <td>{{ e.findings }}</td>
         <td class="muted">{{ (e.duration_ms / 1000) | round(1) }} s</td>
-        <td>{% if e.ok %}<span style="color:#15803d">ok</span>{% else %}<span style="color:#b91c1c">xato</span>{% endif %}</td>
+        <td>{% if e.ok %}<span style="color:#15803d">ok</span>{% else %}<span style="color:#b91c1c">failed</span>{% endif %}</td>
         {% endif %}
       </tr>
       {% endfor %}
@@ -430,11 +430,11 @@
     </table>
 
     <table class="kv">
-      <tr><td>Kategoriya</td><td>{{ f.category.value }}</td></tr>
+      <tr><td>Category</td><td>{{ f.category.value }}</td></tr>
       <tr><td>Location</td><td class="mono">{{ f.location }}</td></tr>
       {% if f.cve %}<tr><td>CVE</td><td class="mono">{{ f.cve | join(", ") }}</td></tr>{% endif %}
       {% if f.cwe %}<tr><td>CWE</td><td class="mono">{{ f.cwe | join(", ") }}</td></tr>{% endif %}
-      <tr><td>Manba</td><td class="mono">{{ f.source_tools | join(", ") }}</td></tr>
+      <tr><td>Source</td><td class="mono">{{ f.source_tools | join(", ") }}</td></tr>
     </table>
 
     {% if f.remediation %}
@@ -463,15 +463,19 @@ vuln:     {{ f.evidence.vuln_id }}{% endif %}</div>
 <div class="section">
   <h2>{{ 4 if findings else 3 }}. Methodology and scope</h2>
 
-  <h3>Qanday tekshirildi</h3>
+  <h3>How it was tested</h3>
   <p>
     All checks were performed automatically through open-source tooling.
     The scan starts only after target ownership is verified (via DNS TXT record or
     the <span class="mono">/.well-known/</span> file).
   </p>
   <ol>
-    <li><strong>Greed</strong> — known CVE and configuration vulnerability findings via <span class="mono">nuclei</span>.</li>
-    <li><strong>Sloth</strong> — known vulnerable dependencies via <span class="mono">osv-scanner</span>.</li>
+    <li><strong>Pride</strong> — subdomain, port and HTTP surface discovery via <span class="mono">subfinder</span>, <span class="mono">naabu</span> and <span class="mono">httpx</span>.</li>
+    <li><strong>Greed</strong> — known CVE and configuration findings via <span class="mono">nuclei</span>.</li>
+    <li><strong>Sloth</strong> — vulnerable dependencies via <span class="mono">osv-scanner</span>.</li>
+    <li><strong>Envy</strong> — TLS protocols, certificates and cipher suites via <span class="mono">sslyze</span>.</li>
+    <li><strong>Lust</strong> and <strong>Gluttony</strong> — header, cookie and rate-limit signals from response metadata.</li>
+    <li><strong>Wrath</strong> — high and critical hits re-run with the same template to confirm reproducibility.</li>
   </ol>
 
   <h3>Limitations</h3>
@@ -481,7 +485,7 @@ vuln:     {{ f.evidence.vuln_id }}{% endif %}</div>
     engineering were not tested. A manual penetration test is recommended for high-risk systems.
   </div>
 
-  <h3 style="margin-top:6mm">False positive haqida</h3>
+  <h3 style="margin-top:6mm">About false positives</h3>
   <p>
     Automated scanners can sometimes produce false positives. A manual confirmation
     before remediating each critical or high-severity finding is recommended.
@@ -490,9 +494,9 @@ vuln:     {{ f.evidence.vuln_id }}{% endif %}</div>
   <h3 style="margin-top:6mm">About this report</h3>
   <table class="kv">
     <tr><td>Scan ID</td><td class="mono">{{ scan_id }}</td></tr>
-    <tr><td>Yaratilgan</td><td>{{ generated_at_str }}</td></tr>
+    <tr><td>Generated</td><td>{{ generated_at_str }}</td></tr>
     <tr><td>Target</td><td class="mono">{{ target }}</td></tr>
-    <tr><td>Engine</td><td class="mono">{{ engine_names }}</td></tr>
+    <tr><td>Engines</td><td class="mono">{{ engine_names }}</td></tr>
   </table>
 </div>
 
