@@ -14,6 +14,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
+from ..intel.models import ThreatIntel
 from ..schemas import SEVERITY_ORDER, FindingContract, Severity
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -76,6 +77,7 @@ def build_context(
     engines: list[dict[str, Any]],
     duration_ms: int,
     generated_at: datetime | None = None,
+    intel: ThreatIntel | None = None,
 ) -> dict[str, Any]:
     counts = dict.fromkeys(SEVERITY_ORDER_LIST, 0)
     for f in findings:
@@ -84,6 +86,15 @@ def build_context(
     ordered = sorted(findings, key=lambda f: (-SEVERITY_ORDER[f.severity], f.title))
     score = compute_risk_score(findings)
     now = generated_at or datetime.now(UTC)
+
+    # Threat intel is optional: `None` means "not consulted", which must not be
+    # rendered as "nothing is exploited".
+    intel_by_cve = intel.by_cve if intel else {}
+    exploited = (
+        sum(1 for f in ordered if (entry := intel.for_cves(f.cve)) is not None and entry.kev)
+        if intel
+        else 0
+    )
 
     summary_cards = [
         {
@@ -114,6 +125,10 @@ def build_context(
         "risk_score": score,
         "risk_grade": risk_grade(score),
         "counts": counts,
+        "intel": intel_by_cve,
+        "intel_consulted": intel is not None,
+        "intel_kev_available": bool(intel and intel.kev_available),
+        "intel_exploited": exploited,
     }
 
 

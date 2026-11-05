@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # Data retention policy (in days). Used by `sins prune` and the ARQ cron.
     retention_days: int = 180
 
+    # Threat-intel enrichment (CISA KEV + FIRST EPSS) for PDF reports.
+    # Disable in air-gapped environments: SINS_THREAT_INTEL_ENABLED=0.
+    threat_intel_enabled: bool = True
+    threat_intel_timeout_seconds: float = 8.0
+
     def allowed_engines_list(self) -> list[str]:
         return [e.strip() for e in self.allowed_engines.split(",") if e.strip()]
 

@@ -25,6 +25,9 @@ os.environ["SINS_REDIS_URL"] = "redis://localhost:6379/15"
 # Tests must not be rate-limited and must not retry.
 os.environ.setdefault("SINS_RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("SINS_ADAPTER_MAX_ATTEMPTS", "1")
+# Report tests must stay offline: KEV/EPSS calls are covered by MockTransport
+# in `test_intel.py`, never by the real APIs.
+os.environ.setdefault("SINS_THREAT_INTEL_ENABLED", "false")
 
 import asyncpg  # noqa: E402
 import httpx  # noqa: E402

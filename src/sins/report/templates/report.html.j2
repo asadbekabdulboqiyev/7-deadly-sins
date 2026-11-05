@@ -182,6 +182,20 @@
   .chip-low      { background: #0284c7; }
   .chip-info     { background: #94a3b8; }
 
+  /* Threat intel badges: KEV is a fact, EPSS is a probability. */
+  .intel-kev {
+    display: inline-block;
+    padding: 0.6mm 1.6mm;
+    border-radius: 1mm;
+    border: 1px solid #b91c1c;
+    color: #b91c1c;
+    font-size: 6.5pt;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .intel-epss { font-size: 7.5pt; color: #475569; }
+
   /* ---------- FINDING DETAIL ---------- */
   .finding {
     border: 1pt solid #e2e8f0;
@@ -325,6 +339,14 @@
     {% endif %}
   </p>
 
+  {% if intel_exploited %}
+  <div class="note">
+    <strong class="c-critical">{{ intel_exploited }}</strong> of these findings map to CVEs in the
+    CISA Known Exploited Vulnerabilities catalogue. Exploitation has already been
+    observed in the wild, so they belong in the incident queue, not the backlog.
+  </div>
+  {% endif %}
+
   <h3 style="margin-top:6mm">Top findings</h3>
   <table class="grid">
     <thead>
@@ -395,16 +417,23 @@
         <th>Finding</th>
         <th style="width:38mm">Location</th>
         <th style="width:22mm">CVE</th>
+        <th style="width:24mm">Threat intel</th>
       </tr>
     </thead>
     <tbody>
       {% for f in findings %}
+      {% set entry = intel.get(f.cve[0]) if f.cve else None %}
       <tr>
         <td class="muted">{{ loop.index }}</td>
         <td><span class="chip chip-{{ f.severity.value }}">{{ f.severity.value }}</span></td>
         <td>{{ f.title }}</td>
         <td class="mono muted">{{ f.location }}</td>
         <td class="mono muted">{{ f.cve | join(", ") if f.cve else "—" }}</td>
+        <td>
+          {% if entry and entry.kev %}<span class="intel-kev">KEV</span>{% endif %}
+          {% if entry and entry.epss_label %}<div class="intel-epss">EPSS {{ entry.epss_label }}</div>{% endif %}
+          {% if not entry or (not entry.kev and entry.epss is none) %}<span class="muted">—</span>{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -434,6 +463,19 @@
       <tr><td>Location</td><td class="mono">{{ f.location }}</td></tr>
       {% if f.cve %}<tr><td>CVE</td><td class="mono">{{ f.cve | join(", ") }}</td></tr>{% endif %}
       {% if f.cwe %}<tr><td>CWE</td><td class="mono">{{ f.cwe | join(", ") }}</td></tr>{% endif %}
+      {% set entry = intel.get(f.cve[0]) if f.cve else None %}
+      {% if entry and entry.kev %}
+      <tr>
+        <td>Exploited in the wild</td>
+        <td><strong>CISA KEV</strong>{% if entry.kev_added %} — added {{ entry.kev_added }}{% endif %}{% if entry.kev_ransomware %} · known ransomware use{% endif %}</td>
+      </tr>
+      {% endif %}
+      {% if entry and entry.epss is not none %}
+      <tr>
+        <td>EPSS</td>
+        <td>{{ entry.epss_label }} probability of exploitation within 30 days{% if entry.percentile_percent is not none %} · {{ entry.percentile_percent }}th percentile{% endif %}</td>
+      </tr>
+      {% endif %}
       <tr><td>Source</td><td class="mono">{{ f.source_tools | join(", ") }}</td></tr>
     </table>
 
@@ -478,8 +520,20 @@ vuln:     {{ f.evidence.vuln_id }}{% endif %}</div>
     <li><strong>Wrath</strong> — high and critical hits re-run with the same template to confirm reproducibility.</li>
   </ol>
 
-  <h3>Limitations</h3>
-  <div class="note">
+  <h3 style="margin-top:6mm">Threat intelligence</h3>
+  <p style="font-size:8.5pt">
+    {% if intel_consulted %}
+    Every CVE in this report was checked against the CISA Known Exploited
+    Vulnerabilities catalogue and the FIRST EPSS model.
+    {% if not intel_kev_available %}The KEV catalogue could not be reached during
+    this run, so KEV status is unknown rather than negative.{% endif %}
+    {% else %}
+    Public threat-intelligence sources were not consulted for this report; only
+    the scanner output is shown.
+    {% endif %}
+  </p>
+
+  <h3>Limitations</h3>  <div class="note">
     <strong>This is not a penetration test.</strong> The report is the output of an automated scan.
     Business logic, authorisation bypasses (IDOR), complex business flows and social
     engineering were not tested. A manual penetration test is recommended for high-risk systems.

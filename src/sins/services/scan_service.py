@@ -22,6 +22,7 @@ from ..authz import OwnershipError, issue_token, verify_ownership
 from ..config import get_settings
 from ..db import get_sessionmaker
 from ..drift import fingerprint
+from ..intel import enrich
 from ..models import Finding, FindingState, Scan, ScanStatus, Target, Tenant, utcnow
 from ..observability import track_engine, track_scan_finished, track_scan_started
 from ..orchestrator import SinsOrchestrator
@@ -862,11 +863,26 @@ async def build_report_context(session: AsyncSession, tenant: Tenant, scan: Scan
     if scan.started_at and scan.finished_at:
         duration_ms = int((scan.finished_at - scan.started_at).total_seconds() * 1000)
 
+    findings = [_to_contract(r) for r in rows]
+    settings = get_settings()
+    intel = None
+    if settings.threat_intel_enabled and findings:
+        # Enrichment is additive: any failure inside `enrich` degrades to
+        # "not consulted" and the report is still generated.
+        try:
+            intel = await enrich(
+                [cve for finding in findings for cve in finding.cve],
+                timeout=settings.threat_intel_timeout_seconds,
+            )
+        except Exception:  # noqa: BLE001 — never lose the report over intel
+            log.exception("threat-intel enrichment failed — continuing without it")
+
     return build_context(
         scan_id=str(scan.id),
         target=target.value if target else "—",
         tenant_name=tenant.name,
-        findings=[_to_contract(r) for r in rows],
+        findings=findings,
         engines=scan.engine_stats or [],
         duration_ms=duration_ms,
+        intel=intel,
     )

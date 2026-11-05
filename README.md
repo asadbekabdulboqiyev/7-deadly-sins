@@ -129,6 +129,28 @@ database **as a SHA-256 hash only**. Rotate it with
 `POST /scans` supports the `Idempotency-Key` header: a network retry does not
 start a second scan.
 
+### Threat intelligence (CISA KEV + FIRST EPSS)
+
+Severity alone is a poor prioritiser: a medium CVE that is already exploited
+matters more than a high CVE that nobody uses. Every PDF report therefore
+enriches its CVEs with two public sources:
+
+| Source | What it answers | Failure mode |
+|---|---|---|
+| [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) | "Is exploitation observed in the wild?" | report says *unknown*, never *clean* |
+| [FIRST EPSS](https://www.first.org/epss/) | "How likely is exploitation in the next 30 days?" | the column is empty, the report still renders |
+
+The API enriches automatically (`SINS_THREAT_INTEL_ENABLED=false` to disable,
+for air-gapped deployments). The CLI does it on demand:
+
+```bash
+uv run sins report out/scan.json --out out/report.pdf --threat-intel
+```
+
+No network call can break a report: both clients are timeout-bounded (8 s) and
+degrade to "not consulted", which is printed in the Methodology section. The
+KEV catalogue is cached in-process for 12 hours.
+
 ### Monitoring and control
 
 | Endpoint | Meaning |
@@ -173,6 +195,7 @@ src/sins/
   security.py      # API key generation + SHA-256 hash
   runner.py        # safe subprocess (timeout, killpg, argv)
   dedup.py         # dedup_key + correlate() - the heart of the aggregator
+  intel/           # CISA KEV + FIRST EPSS enrichment (optional, network)
   orchestrator.py  # parallel adapter runs + retry + applies_to
   observability.py # JSON logging, request-ID, Prometheus metrics
   ratelimit.py     # token-bucket limiter

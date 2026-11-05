@@ -30,6 +30,19 @@ services:
       timeout: 3s
       retries: 5
 
+  # Schema must exist before the API starts. Without this one-shot service a
+  # fresh `docker compose up` returns "relation tenants does not exist".
+  migrate:
+    profiles: ["app"]
+    build: .
+    environment:
+      SINS_DATABASE_URL: postgresql+asyncpg://sins:sins@postgres:5432/sins
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   api:
     profiles: ["app"]
     build: .
@@ -44,6 +57,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: ["sins", "serve", "--host", "0.0.0.0", "--port", "8000"]
 
   worker:
@@ -58,7 +73,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: ["sins", "worker"]
+    # A worker exposes no HTTP surface, so the image's /healthz check would
+    # always report "unhealthy". Liveness for now is the ARQ process itself.
+    healthcheck:
+      disable: true
 
 volumes:
   pg-data:

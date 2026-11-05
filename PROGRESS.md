@@ -10,16 +10,43 @@ Last updated: 2026-11-05
 
 | Metric | Value |
 |---|---|
-| Tests | **280 passed** (`uv run pytest -q`) |
+| Tests | **293 passed** (`uv run pytest -q`) |
 | Coverage | ~76% (`pytest --cov=sins`) |
-| Lint | `ruff check` + `ruff format --check` clean (63 files) |
+| Lint | `ruff check` + `ruff format --check` clean (69 files) |
 | Migrations | head `c3d4e5f6a7b8` — `alembic check` clean |
 | API version | 0.2.0 |
 | Engines | all 7 enabled by default: `nuclei`, `osv`, `pride`, `envy`, `lust`, `gluttony`, `wrath` |
-| Site | `/Users/asadbek/sins-site` — build + desktop/mobile audit done |
+| Site | `/Users/asadbek/sins-site` — own git repo, pushed to GitHub |
+| Docker | image builds, `compose --profile app` healthy end-to-end |
 | Git | all work committed |
 
 ## Done
+
+### Threat intel + deployment proof (2026-11-05, second pass)
+- **CISA KEV + FIRST EPSS enrichment** — `src/sins/intel/` (kev.py,
+  epss.py, enrich.py, models.py). Report shows KEV badges, EPSS probability
+  and a KEV count in the executive summary; Methodology states whether the
+  sources were consulted, so "unreachable" is never printed as "clean".
+  API enriches automatically (`SINS_THREAT_INTEL_ENABLED`), CLI via
+  `sins report --threat-intel`. KEV catalogue cached 12 h in-process.
+- **Graceful degradation** — every call is 8 s-bounded; HTTP errors, non-JSON
+  bodies and empty CVE lists all return "no intel" without raising.
+- **Docker stack now actually boots** — added a one-shot `migrate` service
+  (`alembic upgrade head`) that `api`/`worker` wait for via
+  `service_completed_successfully`. Before this, a fresh `docker compose up`
+  died with `relation "tenants" does not exist`. Worker healthcheck disabled
+  (a worker has no HTTP surface; the inherited `/healthz` probe always failed).
+- **End-to-end proof** — built the image, ran postgres+redis+migrate+api+worker,
+  created a tenant, added a lab target (`verify_method: lab`), ran a real scan
+  (`pride` + `envy`), and downloaded a 27 KB PDF from `/scans/{id}/report.pdf`.
+- **Live intel proof** — CLI report with `--threat-intel` against the real
+  APIs produced a PDF containing `CISA KEV`, `EPSS 99.9%`, ransomware flag and
+  the 100th-percentile wording. EPSS labels are capped at 99.9% so a 0.9995
+  model output is never printed as "100%".
+- **Tests** — `tests/test_intel.py` (13 tests, all offline via
+  `httpx.MockTransport`); conftest sets `SINS_THREAT_INTEL_ENABLED=false`.
+- **Site** — now a git repo (`7-deadly-sins-site`, 48 files), Reporting copy
+  updated for KEV/EPSS, `REPORT_STATS` grid switched to 2/4 columns.
 
 ### Backend core
 - Ownership gate (DNS TXT / `.well-known`), lab target check
@@ -122,21 +149,30 @@ Envy → local TLS `127.0.0.1:8443` (3 findings: self-signed, expiry, HSTS).
 
 Mandatory — none. Next-AI priorities (`AI-HANDOFF.md`, section 8):
 
-1. **Run the Docker image** — no Docker daemon on this machine.
-2. **Full flow with Redis** — Redis not installed, API runs `queue: inline`.
-3. **Real-domain ownership gate** — mock tests only, no real domain yet.
+1. ~~Run the Docker image~~ — done: build + live compose stack verified
+   (postgres, redis, migrate, api, worker).
+2. ~~Full flow with Redis~~ — done: the API enqueues to ARQ inside compose.
+3. **Real-domain ownership gate** — mock/lab only, no real domain yet.
+   Needs a domain the user controls: TXT record or `.well-known` file.
 4. **Prometheus/Grafana** — metrics exist, no dashboard yet.
-5. **Site ↔ API integration** — site is still static marketing.
+5. **Site ↔ API integration** — site is still static marketing; the Drift
+   section is explicitly labelled "illustrative".
+6. **KEV/EPSS on the findings API** — today enrichment is report-only; exposing
+   `kev`/`epss` on `GET /scans/{id}/findings` would let the site demo real data.
+7. **Engine coverage in the image** — `nuclei`, `osv-scanner`, `subfinder`,
+   `naabu`, `httpx` are not baked into the Docker image, so a container scan
+   can only run `pride`/`envy` when the binaries are mounted.
 
 ## Verification commands
 
 ```bash
 cd /Users/asadbek/sins
-uv run pytest -q                                    # 280 passed
+uv run pytest -q                                    # 293 passed
 uv run ruff check src/ tests/ scripts/              # clean
 uv run ruff format --check src/ tests/ scripts/     # clean
 uv run alembic check                                # clean
-make help                                           # commands
+docker compose --profile app up -d                  # migrate → api → worker
+curl -fsS localhost:8000/healthz                    # {"status":"ok"}
 ```
 
 ## Important notes

@@ -179,13 +179,23 @@ def report(
     scan_json: Path = typer.Argument(..., help="`sins scan --json` output"),
     out: Path = typer.Option(Path("report.pdf"), "--out", "-o", help="PDF file"),
     tenant: str = typer.Option("Client", "--tenant", help="Client name on the report"),
+    threat_intel: bool = typer.Option(
+        False,
+        "--threat-intel",
+        help="Enrich CVEs with CISA KEV and FIRST EPSS (needs network access)",
+    ),
 ) -> None:
     """Generate a professional PDF report from scan JSON."""
+    from .intel import enrich
     from .report import build_context, render_pdf
     from .schemas import FindingContract
 
     payload = json.loads(scan_json.read_text(encoding="utf-8"))
     findings = [FindingContract(**f) for f in payload.get("findings", [])]
+
+    intel = None
+    if threat_intel and findings:
+        intel = asyncio.run(enrich([cve for f in findings for cve in f.cve]))
 
     ctx = build_context(
         scan_id=payload.get("scan_id", scan_json.stem),
@@ -194,6 +204,7 @@ def report(
         findings=findings,
         engines=payload.get("engines", []),
         duration_ms=payload.get("duration_ms", 0),
+        intel=intel,
     )
 
     out.parent.mkdir(parents=True, exist_ok=True)
